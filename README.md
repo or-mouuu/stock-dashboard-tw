@@ -7,6 +7,11 @@ GitHub repo 與 Vercel 上，資料只存在你自己手裡。
 > 這是一個範本（template）。點 GitHub 上的「**Use this template**」建立**你自己的** repo，
 > 就擁有一份獨立的儀表板：自己的資料、自己的每日自動更新、自己的密碼。
 
+### 🔗 [線上示範](https://or-mouuu.github.io/stock-dashboard-tw/)
+
+不用部署，直接在瀏覽器看示範資料長什麼樣子（含設定精靈可以互動點點看）。
+這頁純示範用，沒有密碼保護、任何操作都只存在你自己瀏覽器裡，不會寫回任何地方。
+
 ## 特色
 
 - **零手動更新**：GitHub Actions 每日收盤後自動抓價、存快照（TWSE／TPEX／Yahoo Finance）
