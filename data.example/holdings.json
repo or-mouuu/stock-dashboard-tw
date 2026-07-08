@@ -1,0 +1,123 @@
+{
+  "demo": true,
+  "migrated": true,
+  "updatedAt": "2026-01-01T00:00:00Z",
+  "positions": [
+    {
+      "id": "d_slqinw",
+      "stockCode": "0050",
+      "stockName": "元大台灣50",
+      "market": "tse",
+      "type": "ETF",
+      "shares": 1000,
+      "avgCost": 130,
+      "notes": "",
+      "transactions": [
+        {
+          "id": "t_3622hw",
+          "date": "2026-01-15",
+          "action": "buy",
+          "shares": 1000,
+          "price": 130,
+          "note": "示範"
+        }
+      ],
+      "closed": false
+    },
+    {
+      "id": "d_vnmpa0",
+      "stockCode": "2330",
+      "stockName": "台積電",
+      "market": "tse",
+      "type": "長期",
+      "shares": 5,
+      "avgCost": 1000,
+      "notes": "",
+      "transactions": [
+        {
+          "id": "t_402tsd",
+          "date": "2026-02-03",
+          "action": "buy",
+          "shares": 5,
+          "price": 1000,
+          "note": "示範"
+        }
+      ],
+      "closed": false
+    },
+    {
+      "id": "d_0aj3e4",
+      "stockCode": "2317",
+      "stockName": "鴻海",
+      "market": "tse",
+      "type": "短期",
+      "shares": 2000,
+      "avgCost": 200,
+      "notes": "",
+      "transactions": [
+        {
+          "id": "t_yz8suq",
+          "date": "2026-03-10",
+          "action": "buy",
+          "shares": 2000,
+          "price": 200,
+          "note": "示範"
+        }
+      ],
+      "closed": false
+    },
+    {
+      "id": "d_wtmsfw",
+      "stockCode": "VOO",
+      "stockName": "Vanguard S&P 500 ETF",
+      "market": "us",
+      "currency": "USD",
+      "type": "長期",
+      "shares": 3,
+      "avgCost": 500,
+      "notes": "",
+      "transactions": [
+        {
+          "id": "t_aedm3w",
+          "date": "2026-01-20",
+          "action": "buy",
+          "shares": 3,
+          "price": 500,
+          "note": "示範"
+        }
+      ],
+      "closed": false
+    },
+    {
+      "id": "d_yjjeze",
+      "stockCode": "2454",
+      "stockName": "聯發科",
+      "market": "tse",
+      "type": "短期",
+      "shares": 0,
+      "avgCost": 1200,
+      "notes": "",
+      "closed": true,
+      "transactions": [
+        {
+          "id": "t_dlvpg0",
+          "date": "2026-02-01",
+          "action": "buy",
+          "shares": 2,
+          "price": 1200,
+          "note": "示範"
+        },
+        {
+          "id": "t_dift8e",
+          "date": "2026-03-15",
+          "action": "sell",
+          "shares": 2,
+          "price": 1400,
+          "pnl": 400,
+          "note": "示範",
+          "_imported": true
+        }
+      ]
+    }
+  ]
+}

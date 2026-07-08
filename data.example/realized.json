@@ -1,0 +1,25 @@
+{
+  "_comment": "示範已實現交易帳（重新匯入券商 CSV 時覆寫）",
+  "updatedAt": "2026-01-01",
+  "totalPnlTW": 400,
+  "totalPnlUS_USD": 0,
+  "totalPnlUS_TWD": 0,
+  "fxAtImport": 32,
+  "trades": [
+    {
+      "name": "聯發科",
+      "ticker": "2454",
+      "sellDate": "2026-03-15",
+      "shares": 2,
+      "pnl": 400,
+      "pnlTWD": 400,
+      "tradeType": "現股",
+      "buyDate": "2026-02-01",
+      "buyPrice": 1200,
+      "sellPrice": 1400,
+      "retPct": 16.67,
+      "currency": "台幣",
+      "market": "tw"
+    }
+  ]
+}

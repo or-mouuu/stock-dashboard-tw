@@ -1,0 +1,26 @@
+{
+  "targetAllocation": {
+    "core":  { "label": "長線部位", "pct": 60 },
+    "swing": { "label": "短線部位", "pct": 30 },
+    "cash":  { "label": "機動現金", "pct": 10 }
+  },
+  "allocationDriftAlert": 10,
+  "concentrationAlert": 20,
+  "swingRules": {
+    "stopLossPct": -20,
+    "takeProfitPct": 20,
+    "trailingStopPct": null,
+    "stagedTakeProfit": false,
+    "timeStopMonths": 6
+  },
+  "reserve": {
+    "emergencyFund": 300000,
+    "monthlyExpenseMultiple": 6
+  },
+  "report": {
+    "email": "your-email@example.com",
+    "dashboardUrl": "",
+    "brokerMonitorRaw": "",
+    "brokerMonitorUrl": ""
+  }
+}

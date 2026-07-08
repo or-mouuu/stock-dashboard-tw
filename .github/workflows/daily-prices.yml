@@ -1,0 +1,41 @@
+name: Daily price fetch
+
+on:
+  schedule:
+    # 台北 14:30（台股收盤後）— 抓台股當日收盤 + 美股前日收盤
+    - cron: '30 6 * * 1-5'
+    # 台北 08:00（美股收盤後）— 補抓美股最新收盤（週二~週六對應美股週一~週五）
+    - cron: '0 0 * * 2-6'
+  workflow_dispatch: {}   # 允許手動觸發
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-prices
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Fetch prices
+        run: node scripts/fetch-prices.mjs
+
+      - name: Commit & push
+        run: |
+          git config user.name "price-bot"
+          git config user.email "actions@github.com"
+          git add data/
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "chore: daily price update $(TZ=Asia/Taipei date +%F)"
+            git push
+          fi

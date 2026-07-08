@@ -1,0 +1,24 @@
+{
+  "snapshots": [
+    {
+      "id": "c_k1q14q",
+      "date": "2026-01-01",
+      "cash": 500000,
+      "accounts": null,
+      "twStock": 560000,
+      "usStock": 48000,
+      "gold": 0,
+      "note": "示範：年初"
+    },
+    {
+      "id": "c_dj95as",
+      "date": "2026-06-01",
+      "cash": 450000,
+      "accounts": null,
+      "twStock": 604000,
+      "usStock": 66000,
+      "gold": 0,
+      "note": "示範：半年"
+    }
+  ]
+}

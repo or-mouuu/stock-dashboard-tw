@@ -1,0 +1,29 @@
+{
+  "realizedPnlTW": 400,
+  "realizedPnlUS": 0,
+  "wealthGoals": [
+    {
+      "id": "g_r3549e",
+      "name": "第一桶金",
+      "amount": 1000000
+    }
+  ],
+  "emergencyFund": 300000,
+  "monthlyExpense": 30000,
+  "annualIncome": 800000,
+  "annualExpenses": 500000,
+  "cwCategories": [
+    {
+      "name": "現金",
+      "pct": 20,
+      "rate": 0.5
+    },
+    {
+      "name": "股票",
+      "pct": 80,
+      "rate": 7
+    }
+  ],
+  "userAge": 30,
+  "realizedUpdatedAt": "2026-01-01"
+}
