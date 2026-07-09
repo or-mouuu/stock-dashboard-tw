@@ -110,3 +110,4 @@
 {"date":"2026-07-03","totalValue":667178,"totalCost":582896,"tw":{"value":601575,"cost":535000},"us":{"value":65603,"cost":47896},"gold":{"value":0,"cost":0},"usdTwd":31.931,"backfilled":true}
 {"date":"2026-07-06","totalValue":670700,"totalCost":582892,"tw":{"value":604550,"cost":535000},"us":{"value":66150,"cost":47892},"gold":{"value":0,"cost":0},"usdTwd":31.928,"backfilled":true}
 {"date":"2026-07-07","totalValue":671038,"totalCost":583136,"tw":{"value":604550,"cost":535000},"us":{"value":66488,"cost":48136},"gold":{"value":0,"cost":0},"usdTwd":32.090999603271484,"cash":450000}
+{"date":"2026-07-09","totalValue":659331,"totalCost":583125,"tw":{"value":593375,"cost":535000},"us":{"value":65956,"cost":48125},"gold":{"value":0,"cost":0},"usdTwd":32.08300018310547,"cash":450000}
