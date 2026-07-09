@@ -1570,13 +1570,17 @@ function setMarket(m) {
   if(!isNet){
     render();
     if(_marketInitialized[m]!==todayStr()){
-      // 首次切換，或隔日開啟同一分頁 → 重新載入
+      // 首次切換，或隔日開啟同一分頁 → 顯示載入中，強制重新抓取
       _marketInitialized[m]=todayStr();
       document.getElementById('ytdContent').innerHTML='<div style="text-align:center;color:var(--subtle);padding:20px;font-size:13px;">載入中…</div>';
       _ytdVer++;
-      fetchAndRenderYTD();
     }
-    // else：同一天切換分頁 → 保留現有畫面，不重新抓取
+    // 一定要重繪：即使今天已初始化過，#ytdContent 目前顯示的可能是「上一個」
+    // 分頁的圖表（例如剛從美股切回台股）。fetchAndRenderYTD() 內部有自己的
+    // _ytdCache，已初始化過的分頁會直接命中快取、不會重新打 API，
+    // 只是單純把畫面換回目前分頁該顯示的圖（先前漏掉這行導致切回來的分頁
+    // 卡在另一個分頁的 YTD 圖表上，實測發現的 bug）。
+    fetchAndRenderYTD();
   } else {
     render();
     renderNetWorthView();
