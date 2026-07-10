@@ -271,6 +271,21 @@
   @media (max-width: 480px) {
     .onboarding-screen { padding: 20px; }
     #obPresetCards { grid-template-columns: repeat(2, 1fr) !important; }
+    /* header 標題+按鈕群原本擠在同一行不換行，窄螢幕下標題被壓成直排、按鈕溢出畫面
+       （實測 document.documentElement.scrollWidth 遠大於 clientWidth）。改成標題獨佔
+       第一行、按鈕群自動換到下一行。 */
+    .app-header { flex-wrap: wrap; row-gap: 8px; }
+    .app-header-title { white-space: nowrap; }
+    .app-header-actions { margin-left: 0 !important; flex-wrap: wrap; }
+    /* 三欄卡片 grid（總覽/資產配置/需要注意、資金水位/YTD/板塊分佈、進階工具）
+       在 375px 下每欄不到 110px，文字全部直排破版，改單欄堆疊。 */
+    .dash-grid-3 { grid-template-columns: 1fr !important; }
+    /* 持股表格上方的 tabs 列：全部/長期/短期/ETF/黃金/美股 + 搜尋框（固定 160px、
+       margin-left:auto 推到最右）在窄螢幕下擠不進一行，搜尋框被推出畫面外
+       （實測是唯一造成 document.documentElement 溢出的元素）。改成換行、搜尋框滿寬。 */
+    .tabs { flex-wrap: wrap; row-gap: 6px; }
+    .tabs > div[style*="margin-left:auto"] { margin-left: 0 !important; width: 100%; padding: 4px 0 8px !important; }
+    .tabs > div[style*="margin-left:auto"] input { width: 100% !important; box-sizing: border-box; }
   }
   .onboarding-slider-group {
     display: flex;
@@ -309,11 +324,11 @@
 </div>
 
 <!-- ═══ HEADER ═══ -->
-<header style="background:var(--surface);border-bottom:1px solid var(--border);
+<header class="app-header" style="background:var(--surface);border-bottom:1px solid var(--border);
                padding:12px 24px;display:flex;align-items:center;gap:10px;
                position:sticky;top:0;z-index:40;box-shadow:var(--shadow-sm);">
-  <span style="font-size:15px;font-weight:700;letter-spacing:-.01em;">股票投資儀表板</span>
-  <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+  <span class="app-header-title" style="font-size:15px;font-weight:700;letter-spacing:-.01em;">股票投資儀表板</span>
+  <div class="app-header-actions" style="margin-left:auto;display:flex;align-items:center;gap:8px;">
     <span id="unsyncedIndicator" style="display:none; align-items:center; gap:6px; font-size:12px; color:#d97706; cursor:pointer; margin-right:8px;" onclick="showSyncHelpModal()" title="點擊查看備份方法">
       <span class="pulse-dot"></span>
       <span id="unsyncedText">有 0 項變更未備份</span>
@@ -339,7 +354,7 @@
   </div>
 
   <!-- ── Top 4 Cards ── -->
-  <div id="stockCards" style="display:none;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px;">
+  <div id="stockCards" class="dash-grid-3" style="display:none;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px;">
 
     <!-- Card 1: Portfolio allocation -->
     <div class="card" style="padding:16px;display:flex;flex-direction:column;height:360px;">
@@ -407,7 +422,7 @@
     <div id="obCompletionCard" style="display:none;margin-bottom:12px;padding:12px 14px;background:var(--hover-bg);border:1px solid var(--border);border-radius:8px;font-size:12px;"></div>
 
     <!-- Row 1：本週總覽 / 資產配置 / 需要注意 -->
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px;">
+    <div class="dash-grid-3" style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px;">
 
       <div class="card" style="padding:16px;display:flex;flex-direction:column;height:360px;">
         <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px;flex-shrink:0;">本週總覽</div>
@@ -448,7 +463,7 @@
     <!-- 進階工具（低頻功能，預設收合） -->
     <details id="nwAdvanced" style="margin-bottom:0;">
       <summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--muted);padding:10px 4px;user-select:none;">⚙ 進階工具（複利試算・財富目標・現金分析）</summary>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:12px;">
+      <div class="dash-grid-3" style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:12px;">
 
         <div class="card" style="padding:16px;display:flex;flex-direction:column;height:360px;">
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;flex-shrink:0;">
@@ -2843,12 +2858,19 @@ function obCompletionStatus(){
   const hasTargetAllocation = localStorage.getItem('target_allocation_v1') !== null;
   const hasReserve = localStorage.getItem('reserve_step_done_v1') === 'true' || (localStorage.getItem('reserve_skipped') === 'true');
   const hasBackedUp = localStorage.getItem('has_backed_up') === 'true';
+  // 週報信箱是否已從預設值改掉（這件事只能在使用者自己的 repo 裡編輯 settings.json
+  // 完成，這裡只是偵測目前讀到的設定是否還是範本預設佔位信箱）
+  const reportEmail = _appSettings?.report?.email;
+  const hasReport = !!reportEmail && reportEmail !== 'your-email@example.com';
+  const viewedRules = localStorage.getItem('viewed_rules_engine') === 'true';
   return [
-    { key:'holdings',  label:'持股',     done:hasHoldings,        obStep:1 },
-    { key:'cash',      label:'現金帳戶', done:hasCashRecord,      obStep:2 },
-    { key:'target',    label:'配置目標', done:hasTargetAllocation,obStep:3 },
-    { key:'reserve',   label:'保留金',   done:hasReserve,         obStep:3 },
-    { key:'backup',    label:'備份',     done:hasBackedUp,        obStep:4 },
+    { key:'holdings', label:'持股',     done:hasHoldings,         action:"obJumpToStep(1)" },
+    { key:'cash',     label:'現金帳戶', done:hasCashRecord,       action:"obJumpToStep(2)" },
+    { key:'target',   label:'配置目標', done:hasTargetAllocation, action:"obJumpToStep(3)" },
+    { key:'reserve',  label:'保留金',   done:hasReserve,          action:"obJumpToStep(3)" },
+    { key:'report',   label:'週報信箱', done:hasReport,           action:"obGotoWeeklyReportInfo()" },
+    { key:'backup',   label:'備份',     done:hasBackedUp,         action:"showSyncHelpModal()" },
+    { key:'rules',    label:'規則引擎', done:viewedRules,         action:"obGotoAlertsCard()" },
   ];
 }
 
@@ -2856,7 +2878,7 @@ function refreshObCompletionCard(){
   const card = document.getElementById('obCompletionCard');
   if (!card) return;
 
-  // 五項全部完成過一次後就永久隱藏（即使之後 target_allocation_v1 等被清掉也不再糾纏）
+  // 全部完成過一次後就永久隱藏（即使之後 target_allocation_v1 等被清掉也不再糾纏）
   if (localStorage.getItem('ob_completion_dismissed') === 'true') { card.style.display = 'none'; return; }
   // 示範資料階段不顯示（此時該看到的是示範橫幅本身）
   if (isDemoDataActive()) { card.style.display = 'none'; return; }
@@ -2877,7 +2899,7 @@ function refreshObCompletionCard(){
       <strong>設定完成 ${doneCount}/${items.length}</strong>
       <button class="btn btn-ghost btn-xs" onclick="document.getElementById('obCompletionCard').style.display='none'" style="font-size:11px;">✕</button>
     </div>
-    ${pending.map(i => `<div style="display:flex; align-items:center; gap:6px; padding:2px 0; cursor:pointer;" onclick="obJumpToStep(${i.obStep})">
+    ${pending.map(i => `<div style="display:flex; align-items:center; gap:6px; padding:2px 0; cursor:pointer;" onclick="${i.action}">
       <span style="color:var(--subtle);">○</span> 補上${i.label} <span style="color:var(--primary); margin-left:auto; font-size:11px;">前往 →</span>
     </div>`).join('')}
   `;
@@ -4529,16 +4551,15 @@ function obAnimateCount(el, target, duration){
   requestAnimationFrame(tick);
 }
 
-// 三張「下一步」卡片：連結不阻擋，點了不影響精靈完成流程
+// 完成度卡片待辦項目的動作（也還是精靈 Step 4 揭曉畫面點得到）：連結不阻擋
 function obGotoWeeklyReportInfo(){
   window.open('./docs/SETUP.md', '_blank');
-}
-function obGotoBackupHelp(){
-  showSyncHelpModal();
 }
 function obGotoAlertsCard(){
   hideOnboardingModal();
   if (currentMarket !== 'net') setMarket('net');  // 「需要注意」卡只存在總資產頁
+  localStorage.setItem('viewed_rules_engine', 'true');
+  refreshObCompletionCard();
   setTimeout(() => {
     const el = document.getElementById('nwAlerts');
     if (el) el.scrollIntoView({ behavior:'smooth', block:'center' });
@@ -5009,19 +5030,9 @@ function downloadJSON(obj, filename) {
         <div id="obRevealAllocBar" style="height:12px; border-radius:8px; overflow:hidden; display:flex; max-width:320px; margin:0 auto; background:var(--border);"></div>
       </div>
 
-      <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:20px;">
-        <div class="onboarding-card-choice" style="padding:14px;" onclick="obGotoWeeklyReportInfo()">
-          <div style="font-size:22px; margin-bottom:6px;">📧</div>
-          <div style="font-size:12px; font-weight:700;">設定每週週報</div>
-        </div>
-        <div class="onboarding-card-choice" style="padding:14px;" onclick="obGotoBackupHelp()">
-          <div style="font-size:22px; margin-bottom:6px;">💾</div>
-          <div style="font-size:12px; font-weight:700;">備份到 GitHub</div>
-        </div>
-        <div class="onboarding-card-choice" style="padding:14px;" onclick="obGotoAlertsCard()">
-          <div style="font-size:22px; margin-bottom:6px;">🔔</div>
-          <div style="font-size:12px; font-weight:700;">看看你的規則引擎</div>
-        </div>
+      <div style="text-align:center; font-size:12px; color:var(--muted); margin-bottom:20px;">
+        持股／現金／目標都設定好了。週報、備份、規則引擎這些之後才需要做的事，
+        關閉精靈後可以在主畫面的「設定完成」卡片裡繼續。
       </div>
 
       <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:24px;">
