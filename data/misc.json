@@ -25,5 +25,13 @@
     }
   ],
   "userAge": 30,
-  "realizedUpdatedAt": "2026-01-01"
+  "realizedUpdatedAt": "2026-01-01",
+  "otherAssets": [
+    {
+      "id": "oa_demo1",
+      "name": "儲蓄險",
+      "type": "保單",
+      "value": 500000
+    }
+  ]
 }

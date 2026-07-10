@@ -490,6 +490,7 @@
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-shrink:0;">
             <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;">現金分析</div>
             <div style="display:flex;gap:6px;">
+              <button class="btn btn-ghost btn-sm" onclick="showOtherAssetsModal()" style="padding: 2px 6px; font-size: 11px;">🏠 其他資產</button>
               <button class="btn btn-ghost btn-sm" onclick="showAccountManagerModal()" style="padding: 2px 6px; font-size: 11px;">⚙ 管理</button>
               <button class="btn btn-primary btn-sm" onclick="showAddCashModal()" style="padding: 2px 6px; font-size: 11px;">✏ 更新</button>
             </div>
@@ -872,6 +873,10 @@ let cashAccounts = [
 ];
 let cashSnapshots = [];   // [{id, date, cash, accounts, twStock, usStock, gold, note}]
 let wealthGoals   = [];   // [{id, name, amount}]
+// 現金以外、不進機動現金計算、但要算進總資產的長線資產（保單現值、房產估值等）。
+// 不是「持股」（沒有股數/市價可追蹤），也不是「現金帳戶」（不該被算進可投資的機動現金）。
+let otherAssets   = [];   // [{id, name, type, value}]
+function getOtherAssetsTotal(){ return otherAssets.reduce((s,a)=>s+(a.value||0),0); }
 let emergencyFund  = 600000;
 let monthlyExpense = 0;     // 每月固定支出（用於計算可投資現金）
 let userAge        = null;   // 使用者目前年齡（用於財富目標達成時幾歲）
@@ -911,6 +916,7 @@ function loadState() {
   try {
     const cs=localStorage.getItem('cash_snapshots_v1'); if(cs) cashSnapshots=JSON.parse(cs);
     const ca=localStorage.getItem('cash_accounts_v1'); if(ca) cashAccounts=JSON.parse(ca);
+    const oa=localStorage.getItem('other_assets_v1'); if(oa) otherAssets=JSON.parse(oa);
     unsyncedChangesCount = parseInt(localStorage.getItem('unsynced_changes_count')||'0')||0;
 
     const wg=localStorage.getItem('wealth_goals_v2');
@@ -998,6 +1004,7 @@ function saveState() {
   localStorage.setItem(PRICES_KEY,  JSON.stringify(prices));
   localStorage.setItem('cash_snapshots_v1', JSON.stringify(cashSnapshots));
   localStorage.setItem('cash_accounts_v1',  JSON.stringify(cashAccounts));
+  localStorage.setItem('other_assets_v1',   JSON.stringify(otherAssets));
   localStorage.setItem('wealth_goals_v2',   JSON.stringify(wealthGoals));
   _ytdCache = {}; // 持倉異動時清除 YTD cache
   incrementUnsyncedChanges();
@@ -3009,7 +3016,8 @@ async function renderWeeklyOverview(){
   const latestCash=sortedCash[0];
   const cashNow=latestCash?getCashTotal(latestCash):0;
   const {reserve,investable}=getCashBreakdown(cashNow);
-  const totalNow=investNow+cashNow;
+  const otherAssetsTotal=getOtherAssetsTotal();
+  const totalNow=investNow+cashNow+otherAssetsTotal;
 
   // 本週變化：與 7 天前（或最近可得）的快照比較投資部位
   const weekAgoStr=new Date(Date.now()-7*86400000).toLocaleDateString('sv-SE');
@@ -3027,17 +3035,20 @@ async function renderWeeklyOverview(){
 
   el.innerHTML=`
     <div style="margin-bottom:10px;">
-      <div style="font-size:10px;color:var(--muted);margin-bottom:2px;">總資產（投資 + 現金）</div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:2px;">總資產（投資 + 現金${otherAssetsTotal>0?' + 其他資產':''}）</div>
       <div style="font-size:24px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.01em;">$${fmt(totalNow)}</div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:4px;">
       ${smallStat('投資部位','$'+fmt(investNow))}
       ${smallStat('現金總額','$'+fmt(cashNow))}
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:10px;">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:${otherAssetsTotal>0?'4px':'10px'};">
       ${smallStat('機動現金（可投資）','$'+fmt(investable))}
       ${smallStat('保留金（備用金+月支出×6）','$'+fmt(reserve))}
     </div>
+    ${otherAssetsTotal>0?`<div style="display:grid;grid-template-columns:1fr;gap:4px;margin-bottom:10px;">
+      ${smallStat('其他資產（黃金/保單/房產等）','$'+fmt(otherAssetsTotal))}
+    </div>`:''}
     ${weekHtml}
     ${window._growthHtml?`<div style="margin-top:6px;">${window._growthHtml}</div>`:''}
     <div style="font-size:10px;color:var(--subtle);margin-top:10px;">資料日期：${window._staticPricesDate||'—'}（每日自動更新）</div>`;
@@ -3436,13 +3447,18 @@ function renderNetWorthCards(){
   const sorted=[...cashSnapshots].sort((a,b)=>b.date.localeCompare(a.date));
   const latest=sorted[0];
   const cashNow=latest?getCashTotal(latest):0;
-  const currentTotal=cashNow+twValue+usValue+goldValue;
+  const otherAssetsTotal=getOtherAssetsTotal();
+  // 這裡的總計是給「總計」顯示與複利試算預設本金用的，otherAssets 算進去合理；
+  // 但下面 targetCompareHtml() 算長線/短線/機動現金佔比是自己獨立算 total，
+  // 不含 otherAssets——不然黃金/保單這種不參與配置的資產會稀釋掉配置比例。
+  const currentTotal=cashNow+twValue+usValue+goldValue+otherAssetsTotal;
 
   // ── Card 1: 資產配置 ──
   const segs=[
     {label:'現金',v:cashNow,   c:'#64748b'},
     {label:'台股',v:twValue,   c:'#3b82f6'},
     {label:'美股',v:usValue,   c:'#8b5cf6'},
+    {label:'其他資產',v:otherAssetsTotal,c:'#14b8a6'},
     {label:'黃金',v:goldValue, c:'#f59e0b'},
   ].filter(s=>s.v>0);
   const tot4pct=segs.reduce((s,x)=>s+x.v,0);
@@ -3951,6 +3967,58 @@ function addNewAccount() {
   toast('帳戶已新增');
 }
 
+// ── 其他資產（黃金/保單/房產等，不進機動現金計算，只計入總資產）──
+function showOtherAssetsModal() {
+  document.getElementById('otherAssetsModal').style.display = 'flex';
+  renderOtherAssetsList();
+}
+function hideOtherAssetsModal() {
+  document.getElementById('otherAssetsModal').style.display = 'none';
+}
+function renderOtherAssetsList() {
+  const container = document.getElementById('otherAssetsListContainer');
+  if (!container) return;
+  const icon = t => t==='黃金'?'🪙':t==='保單'?'📄':t==='房產'?'🏠':'💎';
+  container.innerHTML = otherAssets.map(a => `
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px;background:var(--hover-bg);border-radius:6px;border:1px solid var(--border);">
+      <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:0;">
+        <span style="font-size:16px;">${icon(a.type)}</span>
+        <span style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(a.name)}</span>
+        <span style="font-size:11px;color:var(--muted);flex-shrink:0;">${a.type}</span>
+      </div>
+      <span style="font-size:12px;font-weight:600;font-variant-numeric:tabular-nums;">$${fmt(a.value)}</span>
+      <button class="btn btn-ghost btn-xs" onclick="removeOtherAsset('${a.id}')" style="padding:2px 6px;font-size:11px;color:var(--loss);">移除</button>
+    </div>
+  `).join('') || '<div style="color:var(--subtle);font-size:12px;padding:4px;">尚無其他資產</div>';
+}
+function addNewOtherAsset() {
+  const nameEl = document.getElementById('newOtherAssetName');
+  const typeEl = document.getElementById('newOtherAssetType');
+  const valueEl = document.getElementById('newOtherAssetValue');
+  const name = nameEl.value.trim();
+  const type = typeEl.value;
+  const value = parseFloat(valueEl.value);
+
+  if (!name) { toast('請填寫名稱', 'warn'); return; }
+  if (isNaN(value) || value <= 0) { toast('請填寫正確的估值', 'warn'); return; }
+
+  otherAssets.push({ id: uid(), name, type, value });
+
+  nameEl.value = ''; valueEl.value = '';
+  saveState();
+  renderNetWorthCards();
+  renderWeeklyOverview();
+  renderOtherAssetsList();
+  toast('已新增其他資產');
+}
+function removeOtherAsset(id) {
+  otherAssets = otherAssets.filter(a => a.id !== id);
+  saveState();
+  renderNetWorthCards();
+  renderWeeklyOverview();
+  renderOtherAssetsList();
+}
+
 
 // ════════════════════════════════════════════════
 // INIT — 資料一律來自 repo 靜態檔（Actions 每日更新），瀏覽器端不抓任何外部 API
@@ -3990,7 +4058,7 @@ function exportMigrationData(){
       realizedPnlTW:parseFloat(localStorage.getItem('realized_pnl_display_tw')||'0')||0,
       realizedPnlUS:parseFloat(localStorage.getItem('realized_pnl_display_us')||'0')||0,
       wealthGoals, emergencyFund, monthlyExpense, annualIncome, annualExpenses,
-      cwCategories, userAge, prices
+      cwCategories, userAge, prices, otherAssets
     },
     settings:{
       ...(targetAllocation?{targetAllocation}:{}),
@@ -4041,7 +4109,7 @@ async function loadFromRepoIfEmpty(){
     }
     // 已實現損益以 repo 為正本（CSV 重新匯入後由 data/misc.json 同步，一律覆寫）
     {
-      const r=await fetch('./data/misc.json');
+      const r=await fetch('./data/misc.json?t='+Date.now());
       if(r.ok){ const d=await r.json();
         if(d?.realizedPnlTW!=null) localStorage.setItem(_RPNL_KEY.tw,String(d.realizedPnlTW));
         if(d?.realizedPnlUS!=null) localStorage.setItem(_RPNL_KEY.us,String(d.realizedPnlUS));
@@ -4051,6 +4119,9 @@ async function loadFromRepoIfEmpty(){
         }
         if(d?.monthlyExpense!=null&&localStorage.getItem('monthly_expense_v1')===null){
           monthlyExpense=d.monthlyExpense; localStorage.setItem('monthly_expense_v1',String(d.monthlyExpense));
+        }
+        if(d?.otherAssets!=null&&localStorage.getItem('other_assets_v1')===null){
+          otherAssets=d.otherAssets; localStorage.setItem('other_assets_v1',JSON.stringify(d.otherAssets));
         }
       }
     }
@@ -4425,7 +4496,8 @@ function obRenderReveal(){
   const investValue = Math.round(open.reduce((s,p)=>s+calc(p).value,0));
   let cashTotal = 0;
   document.querySelectorAll('.ob-account-balance-input').forEach(input => { cashTotal += parseFloat(input.value) || 0; });
-  const total = investValue + cashTotal;
+  const otherAssetsTotal = getOtherAssetsTotal();
+  const total = investValue + cashTotal + otherAssetsTotal;
 
   const totalEl = document.getElementById('obRevealTotal');
   if (totalEl) obAnimateCount(totalEl, total, 600);
@@ -4434,7 +4506,7 @@ function obRenderReveal(){
   const usValue = Math.round(open.filter(isUSPos).reduce((s,p)=>s+calc(p).value,0));
   const bar = document.getElementById('obRevealAllocBar');
   if (bar) {
-    const segs = [{v:twValue,c:'#3b82f6'},{v:usValue,c:'#8b5cf6'},{v:cashTotal,c:'#64748b'}].filter(s=>s.v>0);
+    const segs = [{v:twValue,c:'#3b82f6'},{v:usValue,c:'#8b5cf6'},{v:cashTotal,c:'#64748b'},{v:otherAssetsTotal,c:'#14b8a6'}].filter(s=>s.v>0);
     bar.innerHTML = segs.length
       ? segs.map(s=>`<div style="flex:${s.v};background:${s.c};height:100%;"></div>`).join('')
       : '';
@@ -4608,7 +4680,8 @@ function executeManualDownloadBackup() {
     annualExpenses,
     cwCategories,
     userAge,
-    prices
+    prices,
+    otherAssets
   };
   downloadJSON(miscPayload, 'misc.json');
 
@@ -4692,6 +4765,46 @@ function downloadJSON(obj, filename) {
   </div>
 </div>
 
+<!-- ═══ OTHER ASSETS MODAL ═══ -->
+<div id="otherAssetsModal" style="display:none;" class="modal-bg" onclick="if(event.target===this)hideOtherAssetsModal()">
+  <div class="modal" style="max-width:440px;">
+    <div class="modal-header">
+      <div class="modal-title">其他資產（黃金／保單／房產…）</div>
+      <button class="modal-close" onclick="hideOtherAssetsModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px;line-height:1.6;">
+        這裡登記的是<strong>不參與配置目標、不算進機動現金</strong>的長線資產——只計入總資產，
+        單純記個估值。想追蹤市值波動的黃金請改用「＋新增部位」（市場選「黃金」）。
+      </div>
+      <div id="otherAssetsListContainer" style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;">
+        <!-- 動態渲染其他資產列表 -->
+      </div>
+      <div class="divider"></div>
+      <div style="display:flex;gap:8px;align-items:flex-end;">
+        <div style="flex:1;">
+          <label class="field-label">名稱</label>
+          <input type="text" id="newOtherAssetName" placeholder="例：儲蓄險、市區公寓" style="width:100%;font-size:12px;">
+        </div>
+        <div>
+          <label class="field-label">類型</label>
+          <select id="newOtherAssetType" style="width:80px;font-size:12px;">
+            <option value="黃金">黃金</option>
+            <option value="保單">保單</option>
+            <option value="房產">房產</option>
+            <option value="其他">其他</option>
+          </select>
+        </div>
+        <div style="width:110px;">
+          <label class="field-label">估值</label>
+          <input type="number" id="newOtherAssetValue" placeholder="0" style="width:100%;font-size:12px;">
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="addNewOtherAsset()" style="white-space:nowrap;">新增</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ═══ ONBOARDING WIZARD MODAL (Stepper) ═══ -->
 <div id="onboardingModal" style="display:none; position:fixed; z-index:9999; top:0; left:0; width:100vw; height:100%; background:var(--bg); flex-direction:column; overflow-y:auto; overflow-x:hidden; padding:20px; box-sizing:border-box;">
   <div class="onboarding-screen">
@@ -4769,10 +4882,10 @@ function downloadJSON(obj, filename) {
       </div>
     </div>
 
-    <!-- Step 2：現金帳戶 -->
+    <!-- Step 2：現金與其他資產 -->
     <div id="ob-step-2" class="ob-step-content" style="display:none;">
       <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px;">
-        <h3 style="margin:0;">第 2 步：記下現金，算出你真正能投資的錢</h3>
+        <h3 style="margin:0;">第 2 步：記下現金與其他資產</h3>
         <div style="text-align:right; flex-shrink:0; margin-left:12px;">
           <div style="font-size:10px; color:var(--muted);">現金總額</div>
           <div id="obCashLiveTotal" style="font-size:18px; font-weight:800;">$0</div>
@@ -4786,6 +4899,15 @@ function downloadJSON(obj, filename) {
 
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <button class="btn btn-outline btn-xs" onclick="addObNewAccount()">+ 新增其他帳戶</button>
+      </div>
+
+      <div class="divider" style="margin:16px 0;"></div>
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div style="font-size:12px; color:var(--muted); line-height:1.5;">
+          有黃金、保單、房產這類不算現金、也不參與配置目標的長線資產嗎？<br>
+          （選填，只計入總資產）
+        </div>
+        <button class="btn btn-outline btn-xs" style="white-space:nowrap; margin-left:12px;" onclick="showOtherAssetsModal()">+ 其他資產</button>
       </div>
 
       <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:24px;">
