@@ -69,6 +69,11 @@
 
   /* ── Tabs ── */
   .tabs { display:flex; align-items:center; border-bottom:1px solid var(--border); }
+  /* 錨點導航 scrollIntoView 時，sticky header 會蓋住區塊頂端，留一點餘量 */
+  #nwOverview, #positionsSection, #netWorthSection, #nwAttribution { scroll-margin-top: 76px; }
+  /* 持股表格 12 欄資訊密度高，預設收合次要欄位（成本均價、距52W高），
+     按「顯示更多欄位」再展開。 */
+  #posTable.compact .col-secondary { display:none; }
   .tab  { padding:10px 16px; font-size:13px; font-weight:500; color:var(--muted);
           border-bottom:2px solid transparent; cursor:pointer; transition:all .15s; margin-bottom:-1px; }
   .tab.active { color:var(--text); border-bottom-color:var(--text); }
@@ -267,6 +272,12 @@
     border-color: var(--primary);
     background: var(--hover-bg);
   }
+  /* 三欄卡片 grid 預設會把同一列卡片全部撐成最高那張的高度（grid 預設
+     align-items:stretch）。像「需要注意」警示多的時候內容量比同列其他卡片
+     大很多，撐滿後其餘卡片留一堆空白反而更奇怪；改 align-items:start 讓
+     每張卡各自依內容高度顯示（min-height:360px 當底線），警示多就自然長高、
+     不必在固定高度裡再內縮捲動。 */
+  .dash-grid-3 { align-items: start; }
   /* 375px 手機寬度：外層 padding 太大會把 4 欄 preset 卡片擠到字都直排，改窄邊距＋2 欄 */
   @media (max-width: 480px) {
     .onboarding-screen { padding: 20px; }
@@ -351,13 +362,20 @@
       <button id="mkt-us" class="mkt-btn"         onclick="setMarket('us')">🇺🇸 美股</button>
     </div>
     <span id="mktLabel" style="font-size:12px;color:var(--subtle);"></span>
+    <!-- 總資產頁面內容較長，加個錨點導航方便跳段（持股表格在總資產頁也會顯示） -->
+    <div id="netAnchorNav" style="display:flex;margin-left:auto;gap:4px;">
+      <button class="btn btn-ghost btn-xs" onclick="scrollToSection('nwOverview')">總覽</button>
+      <button class="btn btn-ghost btn-xs" onclick="scrollToSection('positionsSection')">持股</button>
+      <button class="btn btn-ghost btn-xs" onclick="scrollToSection('netWorthSection')">現金</button>
+      <button class="btn btn-ghost btn-xs" onclick="scrollToSection('nwAttribution')">歸因</button>
+    </div>
   </div>
 
   <!-- ── Top 4 Cards ── -->
   <div id="stockCards" class="dash-grid-3" style="display:none;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px;">
 
     <!-- Card 1: Portfolio allocation -->
-    <div class="card" style="padding:16px;display:flex;flex-direction:column;height:360px;">
+    <div class="card" style="padding:16px;display:flex;flex-direction:column;min-height:360px;">
       <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px;flex-shrink:0;">資金水位</div>
       <div id="allocBar" style="height:28px;border-radius:6px;overflow:hidden;display:flex;gap:2px;flex-shrink:0;background:var(--border);margin-bottom:10px;"></div>
       <div id="allocLegend" style="display:flex;flex-direction:column;gap:4px;flex-shrink:0;"></div>
@@ -365,7 +383,7 @@
     </div>
 
     <!-- Card 2: YTD performance -->
-    <div class="card" style="padding:16px;display:flex;flex-direction:column;height:360px;">
+    <div class="card" style="padding:16px;display:flex;flex-direction:column;min-height:360px;">
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;flex-shrink:0;">
         <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;">年初至今（YTD）</div>
         <div style="margin-left:auto;display:flex;align-items:center;gap:5px;">
@@ -404,7 +422,7 @@
     </div>
 
     <!-- Card 4: Sector treemap -->
-    <div class="card" style="padding:16px;display:flex;flex-direction:column;height:360px;">
+    <div class="card" style="padding:16px;display:flex;flex-direction:column;min-height:360px;">
       <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px;flex-shrink:0;">板塊分佈</div>
       <div id="treemapContainer" style="flex:1;position:relative;min-height:0;overflow:hidden;border-radius:4px;"></div>
     </div>
@@ -424,21 +442,21 @@
     <!-- Row 1：本週總覽 / 資產配置 / 需要注意 -->
     <div class="dash-grid-3" style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px;">
 
-      <div class="card" style="padding:16px;display:flex;flex-direction:column;height:360px;">
+      <div class="card" style="padding:16px;display:flex;flex-direction:column;min-height:360px;">
         <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px;flex-shrink:0;">本週總覽</div>
         <div id="nwOverview" style="flex:1;overflow-y:auto;min-height:0;">
           <div style="color:var(--subtle);font-size:12px;padding:4px;">載入中…</div>
         </div>
       </div>
 
-      <div class="card" style="padding:16px;display:flex;flex-direction:column;height:360px;">
+      <div class="card" style="padding:16px;display:flex;flex-direction:column;min-height:360px;">
         <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px;flex-shrink:0;">資產配置 vs 目標</div>
         <div id="nwAllocBar" style="height:28px;border-radius:6px;overflow:hidden;display:flex;gap:2px;flex-shrink:0;background:var(--border);margin-bottom:10px;"></div>
         <div id="nwAllocLegend" style="display:flex;flex-direction:column;gap:4px;flex:1;overflow-y:auto;min-height:0;"></div>
         <div id="nwAllocTotal" style="flex-shrink:0;"></div>
       </div>
 
-      <div class="card" style="padding:16px;display:flex;flex-direction:column;height:360px;">
+      <div class="card" style="padding:16px;display:flex;flex-direction:column;min-height:360px;">
         <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px;flex-shrink:0;">需要注意</div>
         <div id="nwAlerts" style="flex:1;overflow-y:auto;min-height:0;"></div>
       </div>
@@ -465,14 +483,14 @@
       <summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--muted);padding:10px 4px;user-select:none;">⚙ 進階工具（複利試算・財富目標・現金分析）</summary>
       <div class="dash-grid-3" style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:12px;">
 
-        <div class="card" style="padding:16px;display:flex;flex-direction:column;height:360px;">
+        <div class="card" style="padding:16px;display:flex;flex-direction:column;min-height:360px;">
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;flex-shrink:0;">
             <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;">複利試算</div>
           </div>
           <div id="nwTotal" style="flex:1;overflow-y:auto;min-height:0;"></div>
         </div>
 
-        <div class="card" style="padding:16px;display:flex;flex-direction:column;height:360px;">
+        <div class="card" style="padding:16px;display:flex;flex-direction:column;min-height:360px;">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-shrink:0;">
             <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;">財富目標</div>
             <div style="display:flex;align-items:center;gap:4px;">
@@ -486,7 +504,7 @@
           <div id="nwGoal" style="flex:1;overflow-y:auto;min-height:0;"></div>
         </div>
 
-        <div class="card" style="padding:16px;display:flex;flex-direction:column;height:360px;">
+        <div class="card" style="padding:16px;display:flex;flex-direction:column;min-height:360px;">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-shrink:0;">
             <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;">現金分析</div>
             <div style="display:flex;gap:6px;">
@@ -512,22 +530,23 @@
       <div class="tab"        id="tab-etf"   onclick="setTab('etf')">ETF</div>
       <div class="tab" id="tab-gold" onclick="setTab('gold')">黃金</div>
       <div class="tab" id="tab-us"   onclick="setTab('us')">美股</div>
-      <div style="margin-left:auto;padding:8px 0;">
+      <div style="margin-left:auto;padding:8px 0;display:flex;gap:8px;align-items:center;">
+        <button class="btn btn-ghost btn-xs" id="btnToggleCols" onclick="toggleTableColumns()" style="white-space:nowrap;font-size:11px;">▸ 顯示更多欄位</button>
         <input type="text" placeholder="搜尋…" id="searchInput" oninput="renderTable()"
                style="width:160px;padding:5px 10px;font-size:12px;">
       </div>
     </div>
     <div style="overflow-x:auto;">
-      <table>
+      <table id="posTable" class="compact">
         <thead>
           <tr>
             <th style="padding-left:20px;">股票</th>
             <th>類型</th>
             <th>佔比</th>
             <th>股數</th>
-            <th>成本均價</th>
+            <th class="col-secondary">成本均價</th>
             <th>現價</th>
-            <th>距52W高</th>
+            <th class="col-secondary">距52W高</th>
             <th>投入成本</th>
             <th>現值</th>
             <th>損益</th>
@@ -1494,9 +1513,9 @@ function _closedPosRow(p) {
     <td>${badge}</td>
     <td style="font-size:11px;color:var(--muted);">已清倉</td>
     <td style="font-variant-numeric:tabular-nums;">${totalSellShares.toLocaleString()}</td>
-    <td style="font-variant-numeric:tabular-nums;">${cur}${fmtD(avgBuyPrice)}</td>
+    <td class="col-secondary" style="font-variant-numeric:tabular-nums;">${cur}${fmtD(avgBuyPrice)}</td>
     <td style="font-variant-numeric:tabular-nums;font-weight:600;">${cur}${fmtD(avgSellPrice)}</td>
-    <td style="color:var(--subtle);">—</td>
+    <td class="col-secondary" style="color:var(--subtle);">—</td>
     <td style="font-variant-numeric:tabular-nums;">$${fmt(totalBuyCost)}</td>
     <td style="font-variant-numeric:tabular-nums;">$${fmt(totalSellProceeds)}</td>
     <td class="${cls}" style="font-weight:600;font-variant-numeric:tabular-nums;">${sign}$${fmt(pnl)}</td>
@@ -1535,12 +1554,12 @@ function _posRow(p, isClosed=false) {
     <td>${badge}</td>
     <td style="font-variant-numeric:tabular-nums;color:var(--muted);">${isClosed?'—':pct+'%'}</td>
     <td style="font-variant-numeric:tabular-nums;">${p.shares.toLocaleString()}</td>
-    <td style="font-variant-numeric:tabular-nums;">${fmtD(p.avgCost)}</td>
+    <td class="col-secondary" style="font-variant-numeric:tabular-nums;">${fmtD(p.avgCost)}</td>
     <td style="font-variant-numeric:tabular-nums;">
       <div style="font-weight:600;">${isUSPos(p)?'$':' '}${fmtD(displayPrice)}${isUSPos(p)?'<span style="font-size:10px;color:var(--muted);margin-left:2px;">USD</span>':''}</div>
       ${wkChange!=null?`<div class="${wkChange>0?'pos':wkChange<0?'neg':'neu'}" style="font-size:11px;" title="相較一週前收盤">週 ${wkChange>=0?'+':''}${wkChange.toFixed(1)}%</div>`:''}
     </td>
-    <td style="font-variant-numeric:tabular-nums;font-size:12px;color:${off52!=null&&off52>-3?'var(--profit)':'var(--muted)'};" title="現價相對 52 週最高收盤">
+    <td class="col-secondary" style="font-variant-numeric:tabular-nums;font-size:12px;color:${off52!=null&&off52>-3?'var(--profit)':'var(--muted)'};" title="現價相對 52 週最高收盤">
       ${off52!=null?(off52>=0?'新高':off52.toFixed(1)+'%'):'—'}
     </td>
     <td style="font-variant-numeric:tabular-nums;">$${fmt(cost)}</td>
@@ -1556,6 +1575,23 @@ function _posRow(p, isClosed=false) {
       </div>
     </td>
   </tr>`;
+}
+
+// 持股表格次要欄位（成本均價、距52W高）預設收合，記在 localStorage 跨次瀏覽保留
+function toggleTableColumns() {
+  const table = document.getElementById('posTable');
+  const compact = !table.classList.contains('compact');
+  table.classList.toggle('compact', compact);
+  localStorage.setItem('table_compact_v1', compact ? 'true' : 'false');
+  document.getElementById('btnToggleCols').textContent = compact ? '▸ 顯示更多欄位' : '▾ 收合次要欄位';
+}
+function initTableColumns() {
+  const table = document.getElementById('posTable');
+  if (!table) return;
+  const compact = localStorage.getItem('table_compact_v1') !== 'false'; // 預設收合
+  table.classList.toggle('compact', compact);
+  const btn = document.getElementById('btnToggleCols');
+  if (btn) btn.textContent = compact ? '▸ 顯示更多欄位' : '▾ 收合次要欄位';
 }
 
 function renderTable() {
@@ -1594,6 +1630,12 @@ function setTab(tab) {
   renderTable();
 }
 
+// 總資產頁的錨點導航：頁面較長（總覽/資產配置/需要注意 → 資產趨勢 → 持股表格 →
+// 現金記錄 → 績效歸因 → 進階工具），直接跳到對應區塊。
+function scrollToSection(id) {
+  const el = document.getElementById(id);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 function setMarket(m) {
   currentMarket = m;
   ['tw','us','net'].forEach(k=>{
@@ -1606,6 +1648,7 @@ function setMarket(m) {
   document.getElementById('stockCards').style.display      = isNet?'none':'grid';
   document.getElementById('netCards').style.display        = isNet?'block':'none';
   document.getElementById('netWorthSection').style.display = isNet?'':'none';
+  document.getElementById('netAnchorNav').style.display     = isNet?'flex':'none';
   // 台股/美股 只顯示 全部/長期/短期/ETF；總資產 顯示全部 tab
   const showExtra = isNet;
   document.getElementById('tab-gold').style.display = showExtra?'':'none';
@@ -4132,6 +4175,7 @@ window.onload=async()=>{
   loadState();
   await loadFromRepoIfEmpty();
   updateRealizedDisplay();
+  initTableColumns();
   render();
   setLastUpdated();
   renderNetWorthView();
