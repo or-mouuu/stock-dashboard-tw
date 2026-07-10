@@ -591,10 +591,26 @@
         
         <div id="importErrorZone" style="display:none;margin-top:12px;padding:12px;background:#fef2f2;border:1px solid #fee2e2;border-radius:6px;font-size:12px;color:#b91c1c;">
           <strong>⚠️ 看起來不是支援的格式！</strong><br>
-          請確認您上傳的是國泰證券「未實現損益彙總/明細」或「複委託」匯出的 CSV 檔。
-          <div style="margin-top:6px;font-family:monospace;background:rgba(0,0,0,0.03);padding:6px;border-radius:4px;">
-            預期欄位：股票名稱, 股數, 買進單價/均價, 市價, 成交日期 (僅明細格式)
+          請確認您上傳的是國泰證券「未實現損益彙總/明細」或「複委託」匯出的 CSV 檔，第一列（欄位標題）長這樣：
+          <div style="margin-top:8px;overflow-x:auto;">
+            <table style="width:100%;font-size:11px;font-family:monospace;background:rgba(0,0,0,0.03);border-radius:4px;">
+              <thead><tr>
+                <th style="padding:4px 6px;text-align:left;white-space:nowrap;">股票名稱</th>
+                <th style="padding:4px 6px;white-space:nowrap;">股數</th>
+                <th style="padding:4px 6px;white-space:nowrap;">買進單價</th>
+                <th style="padding:4px 6px;white-space:nowrap;">市價</th>
+                <th style="padding:4px 6px;white-space:nowrap;">成交日期*</th>
+              </tr></thead>
+              <tbody><tr style="color:#7f1d1d;">
+                <td style="padding:4px 6px;text-align:left;white-space:nowrap;">台積電</td>
+                <td style="padding:4px 6px;white-space:nowrap;">1,000</td>
+                <td style="padding:4px 6px;white-space:nowrap;">580.00</td>
+                <td style="padding:4px 6px;white-space:nowrap;">920.00</td>
+                <td style="padding:4px 6px;white-space:nowrap;">2026/01/15</td>
+              </tr></tbody>
+            </table>
           </div>
+          <div style="margin-top:4px;font-size:11px;">＊成交日期只有「未實現損益明細」格式才有；彙總格式不需要這欄。</div>
         </div>
         
         <div style="margin-top:12px;padding:10px 14px;background:var(--hover-bg);border-radius:6px;
@@ -668,6 +684,7 @@
         <div>
           <label class="field-label">股票代號 *</label>
           <input type="text" id="fCode" placeholder="2330 / AAPL" style="width:100%;" oninput="autoFillName()" onblur="lookupUSStockName()">
+          <div id="fCodeHint" style="font-size:10px;color:var(--muted);margin-top:2px;min-height:14px;"></div>
         </div>
         <div>
           <label class="field-label">股數 *</label>
@@ -717,7 +734,14 @@
           </div>
         </div>
       </details>
-      
+
+      <div id="addDemoClearChoice" style="display:none;margin:14px 0 0;padding:12px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:12px;color:#b45309;">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+          <input type="checkbox" id="addClearDemoCheck" checked>
+          <span>清除示範資料與旗標（建議勾選，以改用你自己的資料）</span>
+        </label>
+      </div>
+
       <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">
         <button class="btn btn-outline" onclick="hideAddModal()">取消</button>
         <button class="btn btn-outline" id="btnSaveAndContinue" onclick="savePosition(true)">儲存並繼續</button>
@@ -1686,7 +1710,7 @@ function smallStat(label,val) {
 // IMPORT MODAL
 // ════════════════════════════════════════════════
 function showImportModal() { document.getElementById('importModal').style.display='flex'; showImportStep1(); }
-function hideImportModal() { document.getElementById('importModal').style.display='none'; }
+function hideImportModal() { document.getElementById('importModal').style.display='none'; obReturnFromEntry(); }
 function showImportStep1() {
   document.getElementById('importStep1').style.display='block';
   document.getElementById('importStep2').style.display='none';
@@ -1738,7 +1762,7 @@ function showImportStep2() {
   renderImportTable();
 }
 function renderImportTable() {
-  const thead = document.querySelector('#importModal thead tr');
+  const thead = document.querySelector('#importStep2 thead tr');
   if (importIsUSBrokerage) {
     thead.innerHTML = `
       <th style="text-align:left;">代號</th>
@@ -1889,15 +1913,9 @@ function executeImportWrite() {
   const missing=newPos.filter(p=>!p.stockCode&&!importIsUSBrokerage);
   if (missing.length) toast(`已匯入，${missing.map(p=>p.stockName).join('、')} 未填代號，請事後編輯補上。`,'warn');
   else toast(`成功匯入 ${newPos.length} 筆部位`);
-  
+
+  if (_obEntryActive) _obEntryAddCount += newPos.length;
   saveState(); hideImportModal(); render();
-  if(document.getElementById('onboardingModal').style.display === 'flex') {
-    const el = document.getElementById('obImportStateText');
-    if(el) {
-      el.style.display = 'block';
-      el.textContent = `✅ 成功匯入 ${newPos.length} 筆部位資料！`;
-    }
-  }
 }
 function batchSetImportType(type) {
   importRows.forEach(r => {
@@ -1940,11 +1958,25 @@ function setupDragAndDrop() {
 // ════════════════════════════════════════════════
 function autoFillName() {
   const code=document.getElementById('fCode').value.trim();
+  const hintEl=document.getElementById('fCodeHint');
+  if (!code) { if(hintEl) hintEl.textContent=''; return; }
   for (const [name,info] of Object.entries(CODE_MAP)) {
     if (info.code===code) {
       if (!document.getElementById('fName').value) document.getElementById('fName').value=name;
-      document.getElementById('fMarket').value=info.market; break;
+      document.getElementById('fMarket').value=info.market;
+      if (hintEl) { hintEl.textContent=`✓ ${name}`; hintEl.style.color='var(--profit)'; }
+      return;
     }
+  }
+  if (!hintEl) return;
+  if (prices[code]) {
+    hintEl.textContent='✓ 已是追蹤中的代號';
+    hintEl.style.color='var(--profit)';
+  } else if (document.getElementById('fMarket').value !== 'us') {
+    hintEl.textContent='未知代號，之後 Actions 會自動嘗試抓價；查不到時可在下方手動填現價';
+    hintEl.style.color='var(--muted)';
+  } else {
+    hintEl.textContent='';
   }
 }
 async function lookupUSStockName(){
@@ -2034,6 +2066,7 @@ function showAddModal() {
   editingId=null;
   document.getElementById('addModalTitle').textContent='新增部位';
   ['fCode','fName','fShares','fCost','fPrice','fNotes'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('fCodeHint').textContent='';
   document.getElementById('fType').value='長期';
   const defaultMkt=currentMarket==='us'?'us':currentMarket==='tw'?'tse':'tse';
   document.getElementById('fMarket').value=defaultMkt;
@@ -2042,7 +2075,8 @@ function showAddModal() {
   // 快速新增模式下的按鈕與細節展開設定
   document.getElementById('btnSaveAndContinue').style.display='inline-flex';
   document.getElementById('holdingAdvancedDetails').removeAttribute('open');
-  
+  document.getElementById('addDemoClearChoice').style.display = isDemoDataActive() ? 'block' : 'none';
+
   document.getElementById('addModal').style.display='flex';
   onTypeChange();
   onMarketChange();
@@ -2062,14 +2096,16 @@ function showEditModal(id) {
   document.getElementById('fCost').value=p.avgCost||'';
   document.getElementById('fPrice').value=getPrice(p)||'';
   document.getElementById('fNotes').value=p.notes||'';
-  
+  document.getElementById('fCodeHint').textContent='';
+  document.getElementById('addDemoClearChoice').style.display='none';
+
   // 編輯模式下，隱藏「儲存並繼續」，且預設展開進階設定
   document.getElementById('btnSaveAndContinue').style.display='none';
   document.getElementById('holdingAdvancedDetails').setAttribute('open', '');
   
   document.getElementById('addModal').style.display='flex';
 }
-function hideAddModal() { document.getElementById('addModal').style.display='none'; }
+function hideAddModal() { document.getElementById('addModal').style.display='none'; obReturnFromEntry(); }
 function savePosition(continueAdding = false) {
   const code=document.getElementById('fCode').value.trim();
   let name=document.getElementById('fName').value.trim();
@@ -2089,6 +2125,14 @@ function savePosition(continueAdding = false) {
   if (isNaN(cost)||cost<=0)     { toast('請填入正確的成本均價','err'); return; }
   if (!isNaN(manualP)&&manualP>0&&code) prices[code]={price:manualP,updatedAt:todayStr()};
   saveTypePref(name,type);
+
+  // 這個 checkbox 預設 checked，但容器只在示範模式且非編輯時才顯示；同一套
+  // 「必須同時確認真的在示範模式」防護見 executeImportWrite() 的註解。
+  if (!editingId && isDemoDataActive() && (document.getElementById('addClearDemoCheck')?.checked ?? true)) {
+    positions = [];
+    localStorage.removeItem('demo_mode_active');
+  }
+
   if (editingId) {
     const idx=positions.findIndex(p=>p.id===editingId);
     if (idx>=0){
@@ -2110,6 +2154,8 @@ function savePosition(continueAdding = false) {
   saveState();
   render();
   
+  if (!editingId && _obEntryActive) _obEntryAddCount += 1;
+
   if (continueAdding) {
     ['fCode','fName','fShares','fCost','fPrice','fNotes'].forEach(id=>document.getElementById(id).value='');
     document.getElementById('fType').value = '長期';
@@ -2121,13 +2167,6 @@ function savePosition(continueAdding = false) {
   } else {
     hideAddModal();
     toast(editingId ? '部位已更新' : '成功新增部位');
-    if(document.getElementById('onboardingModal').style.display === 'flex') {
-      const el = document.getElementById('obImportStateText');
-      if(el) {
-        el.style.display = 'block';
-        el.textContent = `✅ 成功新增 1 筆部位資料！`;
-      }
-    }
   }
 }
 
@@ -4058,13 +4097,11 @@ function showOnboardingModal() {
   document.getElementById('ob-step-0').style.display = 'block';
   document.getElementById('obStepperWrap').style.display = 'none';
 
-  // 1. 初始化 Step 1: 持股（回到選擇畫面，清掉上次殘留的面板狀態）
+  // 1. 初始化 Step 1: 持股（回到選擇畫面，清掉上次殘留的結果畫面）
   document.getElementById('obHoldingsChoice').style.display = 'grid';
-  document.getElementById('obCSVPanel').style.display = 'none';
-  document.getElementById('obManualPanel').style.display = 'none';
   document.getElementById('obHoldingsResult').style.display = 'none';
-  document.getElementById('obManualRows').innerHTML = '';
-  obExcludedRows = new Set();
+  _obEntryActive = false;
+  _obEntryAddCount = 0;
 
   // 2. 初始化 Step 2: 帳戶餘額
   onboardingAccounts = JSON.parse(JSON.stringify(cashAccounts));
@@ -4335,170 +4372,34 @@ function addObNewAccount() {
 }
 
 // ════════════════════════════════════════════════
-// 精靈 Step 1：持股（匯入 CSV 內嵌預覽 ／ 手動連續新增）
+// 精靈 Step 1：持股——不重做一套簡化版 CSV/手動新增，直接借用主畫面既有的
+// importModal／addModal（功能更完整：市場切換、代號編輯、複委託/明細格式、
+// 黃金/現價/備註等進階欄位）。這裡只負責「精靈開的 modal 關閉後要回到精靈」。
 // ════════════════════════════════════════════════
-let obExcludedRows = new Set();  // 使用者在預覽表中勾選排除的列索引
+let _obEntryActive = false;   // 目前開著的 importModal/addModal 是不是精靈叫出來的
+let _obEntryAddCount = 0;     // 這次進入後累積新增/匯入了幾筆（給關閉時顯示結果用）
 
-function obShowCSVPanel(){
-  document.getElementById('obHoldingsChoice').style.display = 'none';
-  document.getElementById('obCSVPanel').style.display = 'block';
-  document.getElementById('obManualPanel').style.display = 'none';
-  document.getElementById('obHoldingsResult').style.display = 'none';
-  obSetupDropZone();
+function obOpenCSVImport(){
+  _obEntryActive = true;
+  _obEntryAddCount = 0;
+  showImportModal();
 }
-function obShowManualPanel(){
-  document.getElementById('obHoldingsChoice').style.display = 'none';
-  document.getElementById('obManualPanel').style.display = 'block';
-  document.getElementById('obCSVPanel').style.display = 'none';
-  document.getElementById('obHoldingsResult').style.display = 'none';
-  if (!document.getElementById('obManualRows').children.length) obAddManualRow();
+function obOpenManualAdd(){
+  _obEntryActive = true;
+  _obEntryAddCount = 0;
+  showAddModal();
 }
-function obBackToChoice(){
-  document.getElementById('obHoldingsChoice').style.display = 'grid';
-  document.getElementById('obCSVPanel').style.display = 'none';
-  document.getElementById('obManualPanel').style.display = 'none';
-  document.getElementById('obCSVError').style.display = 'none';
-  document.getElementById('obCSVPreviewWrap').style.display = 'none';
-}
-
-function obSetupDropZone(){
-  const zone = document.getElementById('obDropZone');
-  if (!zone || zone._obDropBound) return;
-  zone._obDropBound = true;
-  zone.addEventListener('dragover', e => { e.preventDefault(); zone.style.background = 'var(--hover-bg)'; });
-  zone.addEventListener('dragleave', () => { zone.style.background = 'transparent'; });
-  zone.addEventListener('drop', e => {
-    e.preventDefault();
-    zone.style.background = 'transparent';
-    if (e.dataTransfer.files.length) {
-      document.getElementById('obCsvInput').files = e.dataTransfer.files;
-      obHandleCSVFile(document.getElementById('obCsvInput'));
-    }
-  });
-}
-
-function obHandleCSVFile(input){
-  const file = input.files[0]; if (!file) return;
-  const reader = new FileReader();
-  reader.onload = e => {
-    const { valid, rows, isUSBrokerage, isDetail } = parseCSVText(e.target.result);
-    importIsUSBrokerage = isUSBrokerage;
-    importIsDetail = isDetail;
-    importRows = rows;
-    obExcludedRows = new Set();
-    if (!valid) {
-      document.getElementById('obCSVError').style.display = 'block';
-      document.getElementById('obCSVPreviewWrap').style.display = 'none';
-    } else {
-      document.getElementById('obCSVError').style.display = 'none';
-      document.getElementById('obCSVPreviewWrap').style.display = 'block';
-      renderObCSVPreview();
-    }
-  };
-  reader.readAsText(file, 'UTF-8');
-}
-
-function renderObCSVPreview(){
-  const tbody = document.getElementById('obCSVPreviewBody');
-  tbody.innerHTML = importRows.map((r,i) => {
-    const excluded = obExcludedRows.has(i);
-    const missingCode = !importIsUSBrokerage && !r.stockCode;
-    const rowStyle = `${excluded?'opacity:0.4;':''}${missingCode?'background:#fef2f2;':''}`;
-    const typeChip = t => `<button class="import-chip ${r.type===t?'active':''}" onclick="obSetRowType(${i},'${t}')" style="font-size:11px;padding:2px 6px;">${t}</button>`;
-    return `<tr style="${rowStyle}">
-      <td style="padding:6px;text-align:center;"><input type="checkbox" ${excluded?'':'checked'} onchange="obToggleExcludeRow(${i})"></td>
-      <td style="padding:6px;">${escHtml(r.stockCode||'（缺代號）')}</td>
-      <td style="padding:6px;">${escHtml(r.stockName)}</td>
-      <td style="padding:6px;text-align:right;">${r.shares.toLocaleString()}</td>
-      <td style="padding:6px;text-align:right;">${fmtD(r.avgCost)}</td>
-      <td style="padding:6px;"><div class="import-chip-group" style="display:flex;gap:2px;">${typeChip('長期')}${typeChip('短期')}${typeChip('ETF')}</div></td>
-    </tr>`;
-  }).join('');
-  const n = importRows.length - obExcludedRows.size;
-  const btn = document.getElementById('obConfirmImportBtn');
-  if (btn) btn.textContent = `確認匯入 ${n} 檔`;
-}
-function obToggleExcludeRow(i){
-  if (obExcludedRows.has(i)) obExcludedRows.delete(i); else obExcludedRows.add(i);
-  renderObCSVPreview();
-}
-function obSetRowType(i, type){ importRows[i].type = type; renderObCSVPreview(); }
-function obBatchSetType(type){ importRows.forEach(r => r.type = type); renderObCSVPreview(); }
-
-function obConfirmCSVImport(){
-  const rowsToImport = importRows.filter((r,i) => !obExcludedRows.has(i));
-  if (!rowsToImport.length) { toast('沒有可匯入的資料列','err'); return; }
-  obClearDemoIfNeeded(() => {
-    const newPos = rowsToImport.map(r => {
-      if (importIsUSBrokerage) {
-        return { id:uid(), stockCode:r.stockCode, stockName:r.stockName, market:'us', currency:'USD',
-                 type:r.type, shares:r.shares, avgCost:r.avgCost, currentPrice:r.csvPrice, notes:'', transactions:[] };
-      }
-      return { id:uid(), stockCode:r.stockCode, stockName:r.stockName, market:r.market,
-               type:r.type, shares:r.shares, avgCost:r.avgCost, currentPrice:r.csvPrice, notes:'',
-               transactions: importIsDetail ? (r.transactions||[]) : [] };
-    });
-    newPos.forEach(p => {
-      saveTypePref(p.stockName, p.type);
-      if (p.currentPrice!=null && p.stockCode) prices[p.stockCode] = {price:p.currentPrice, updatedAt:new Date().toISOString()};
-      positions.push(p);
-    });
-    saveState();
-    obShowHoldingsResult(newPos.length);
-  });
-}
-
-// 手動新增：極簡連續列（代號／股數／均價），代號能對到 CODE_MAP 就自動帶名稱與市場
-function obAddManualRow(){
-  const wrap = document.getElementById('obManualRows');
-  const row = document.createElement('div');
-  row.className = 'ob-manual-row';
-  row.style.cssText = 'display:grid;grid-template-columns:1fr 1fr 1fr 32px;gap:8px;margin-bottom:8px;align-items:center;';
-  row.innerHTML = `
-    <input type="text" placeholder="代號" class="ob-manual-code" style="width:100%;">
-    <input type="number" placeholder="股數" class="ob-manual-shares" style="width:100%;">
-    <input type="number" placeholder="均價" class="ob-manual-cost" style="width:100%;">
-    <button class="btn btn-outline btn-xs" onclick="this.parentElement.remove()" title="移除">✕</button>`;
-  wrap.appendChild(row);
-}
-
-function obConfirmManualAdd(){
-  const rows = [...document.querySelectorAll('#obManualRows .ob-manual-row')];
-  const parsed = [];
-  for (const row of rows) {
-    const code = row.querySelector('.ob-manual-code').value.trim();
-    const shares = parseFloat(row.querySelector('.ob-manual-shares').value);
-    const cost = parseFloat(row.querySelector('.ob-manual-cost').value);
-    if (!code || isNaN(shares) || shares<=0 || isNaN(cost) || cost<=0) continue;
-    let name = code, market = 'tse';
-    for (const [n, info] of Object.entries(CODE_MAP)) {
-      if (info.code === code) { name = n; market = info.market; break; }
-    }
-    parsed.push({ id:uid(), stockCode:code, stockName:name, market, type:'長期',
-                  shares, avgCost:cost, notes:'', transactions:[] });
-  }
-  if (!parsed.length) { toast('請至少填寫一檔完整的代號／股數／均價','err'); return; }
-  obClearDemoIfNeeded(() => {
-    parsed.forEach(p => { saveTypePref(p.stockName, p.type); positions.push(p); });
-    saveState();
-    obShowHoldingsResult(parsed.length);
-  });
-}
-
-// 若目前是示範資料，匯入/新增前先確認要清除；確認後才執行傳入的動作
-function obClearDemoIfNeeded(action){
-  if (isDemoDataActive()) {
-    if (!confirm('將清除示範資料並改用你的資料，確定嗎？')) return;
-    positions = [];
-    localStorage.removeItem('demo_mode_active');
-  }
-  action();
+// importModal/addModal 關閉時呼叫（不管是完成、取消、或點背景關閉）：
+// 精靈叫出來的才處理，一般日常使用（右上角按鈕）呼叫時 _obEntryActive 是 false，直接略過。
+function obReturnFromEntry(){
+  if (!_obEntryActive) return;
+  _obEntryActive = false;
+  if (_obEntryAddCount > 0) obShowHoldingsResult(_obEntryAddCount);
+  // count 是 0（使用者中途取消、沒真的新增任何東西）→ 留在 obHoldingsChoice 讓使用者重選
 }
 
 function obShowHoldingsResult(n){
   document.getElementById('obHoldingsChoice').style.display = 'none';
-  document.getElementById('obCSVPanel').style.display = 'none';
-  document.getElementById('obManualPanel').style.display = 'none';
   const resultBox = document.getElementById('obHoldingsResult');
   resultBox.style.display = 'block';
 
@@ -4836,74 +4737,23 @@ function downloadJSON(obj, filename) {
       </div>
     </div>
 
-    <!-- Step 1：持股（魔法時刻——匯入/新增內嵌在精靈內，不彈舊 modal） -->
+    <!-- Step 1：持股（匯入/新增直接呼叫主畫面既有的 importModal／addModal，
+         不再自己重做一套簡化版——避免兩套平行 UI 各自維護、各自出 bug，
+         見 PUBLIC_PLAN.md Phase 4.3/4.4） -->
     <div id="ob-step-1" class="ob-step-content">
-      <h3 style="margin-bottom:8px;">第 1 步：匯入你的持股</h3>
+      <h3 style="margin-bottom:8px;">第 1 步：你用哪家券商？</h3>
       <p style="font-size:12px; color:var(--muted); margin-bottom:20px; line-height:1.6;">這是最重要的一步——匯入後，系統會開始自動追蹤市值與報酬率。</p>
 
       <div id="obHoldingsChoice" style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:20px;">
-        <div class="onboarding-card-choice" onclick="obShowCSVPanel()">
+        <div class="onboarding-card-choice" onclick="obOpenCSVImport()">
           <div style="font-size:28px; margin-bottom:8px;">📥</div>
-          <div style="font-weight:700; margin-bottom:4px;">匯入券商 CSV</div>
-          <div style="font-size:11px; color:var(--muted);">支援國泰證券「彙總」或「明細」匯出 CSV</div>
+          <div style="font-weight:700; margin-bottom:4px;">國泰證券</div>
+          <div style="font-size:11px; color:var(--muted);">「彙總」或「明細」匯出 CSV，直接拖拉匯入</div>
         </div>
-        <div class="onboarding-card-choice" onclick="obShowManualPanel()">
+        <div class="onboarding-card-choice" onclick="obOpenManualAdd()">
           <div style="font-size:28px; margin-bottom:8px;">✏</div>
-          <div style="font-weight:700; margin-bottom:4px;">手動新增部位</div>
-          <div style="font-size:11px; color:var(--muted);">只需股票代號、股數與均價即可</div>
-        </div>
-      </div>
-
-      <!-- CSV 匯入面板 -->
-      <div id="obCSVPanel" style="display:none; margin-bottom:20px;">
-        <div id="obDropZone" style="border:2px dashed var(--border); border-radius:8px; padding:28px; text-align:center; cursor:pointer; margin-bottom:12px;"
-             onclick="document.getElementById('obCsvInput').click()">
-          <div style="font-size:24px; margin-bottom:6px;">📄</div>
-          <div style="font-size:13px; color:var(--muted);">拖放 CSV 檔案到這裡，或點擊選擇檔案</div>
-          <input type="file" id="obCsvInput" accept=".csv,text/csv" style="display:none;" onchange="obHandleCSVFile(this)">
-        </div>
-        <div id="obCSVError" style="display:none; background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:12px; font-size:12px; color:#b91c1c; margin-bottom:12px;">
-          這不是目前支援的格式。目前支援<strong>國泰證券</strong>的「未實現彙總」或「未實現明細」匯出 CSV，第一列欄位應包含「股票名稱」「股數」「成交價」等（明細格式另含「成交日期」）。
-        </div>
-        <div id="obCSVPreviewWrap" style="display:none;">
-          <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px; font-size:12px;">
-            <span style="color:var(--muted);">全部設為：</span>
-            <button class="btn btn-outline btn-xs" onclick="obBatchSetType('長期')">長期</button>
-            <button class="btn btn-outline btn-xs" onclick="obBatchSetType('短期')">短期</button>
-            <button class="btn btn-outline btn-xs" onclick="obBatchSetType('ETF')">ETF</button>
-          </div>
-          <div style="max-height:240px; overflow-y:auto; border:1px solid var(--border); border-radius:8px;">
-            <table style="width:100%; font-size:12px;">
-              <thead><tr style="background:var(--hover-bg);">
-                <th style="padding:6px;"></th>
-                <th style="padding:6px;text-align:left;">代號</th>
-                <th style="padding:6px;text-align:left;">名稱</th>
-                <th style="padding:6px;">股數</th>
-                <th style="padding:6px;">均價</th>
-                <th style="padding:6px;">類型</th>
-              </tr></thead>
-              <tbody id="obCSVPreviewBody"></tbody>
-            </table>
-          </div>
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:12px;">
-            <button class="btn btn-outline btn-sm" onclick="obBackToChoice()">← 返回選擇</button>
-            <button class="btn btn-primary btn-sm" id="obConfirmImportBtn" onclick="obConfirmCSVImport()">確認匯入</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- 手動新增面板 -->
-      <div id="obManualPanel" style="display:none; margin-bottom:20px;">
-        <div style="display:grid; grid-template-columns:1fr 1fr 1fr 32px; gap:8px; font-size:11px; color:var(--muted); margin-bottom:6px;">
-          <div>代號</div><div>股數</div><div>均價</div><div></div>
-        </div>
-        <div id="obManualRows" style="margin-bottom:12px;"></div>
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <button class="btn btn-outline btn-xs" onclick="obAddManualRow()">+ 再加一檔</button>
-          <div style="display:flex; gap:8px;">
-            <button class="btn btn-outline btn-sm" onclick="obBackToChoice()">← 返回選擇</button>
-            <button class="btn btn-primary btn-sm" onclick="obConfirmManualAdd()">完成新增</button>
-          </div>
+          <div style="font-weight:700; margin-bottom:4px;">其他券商／不確定</div>
+          <div style="font-size:11px; color:var(--muted);">複製你券商 App 的庫存畫面，照代號/股數/均價填就好</div>
         </div>
       </div>
 
