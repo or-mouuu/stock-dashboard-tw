@@ -1172,6 +1172,20 @@ function parseUSBrokerageCSV(text) {
   return Object.values(map);
 }
 
+// 國泰「未實現彙總/明細」CSV 不含股票代號欄位，只能靠中文名稱對照代號。
+// CODE_MAP 是固定的小字典，永遠不夠涵蓋一個人實際持有的所有股票；但使用者
+// 現有的 positions 裡，只要曾經（手動編輯或用有代號的格式匯入過）補上代號，
+// 就是活的、會隨組合擴充的對照表——優先查這個，查不到才退回 CODE_MAP。
+function resolveCodeByName(name) {
+  // 只信任「未清倉、代號長得像真代號（數字/英數，不是中文名稱）」的既有部位；
+  // 舊資料裡混過幾筆代號欄位被誤存成股票名稱本身的髒資料，這裡順便濾掉，
+  // 不然靠它反推代號時會把髒資料當正確答案抄一次。
+  const looksLikeCode = c => !!c && /^[A-Za-z0-9.]+$/.test(c);
+  const existing = positions.find(p => !p.closed && p.stockName === name && looksLikeCode(p.stockCode));
+  if (existing) return { code: existing.stockCode, market: existing.market };
+  return CODE_MAP[name] || {};
+}
+
 function parseKGI(text) {
   const rows=[];
   for (const line of text.trim().split(/\r?\n/).slice(1)) {
@@ -1183,7 +1197,7 @@ function parseKGI(text) {
     const avgCost = parseFloat(f[4].replace(/,/g,''));
     const mktP    = parseFloat(f[5].replace(/,/g,''));
     if (isNaN(shares)||isNaN(avgCost)||shares<=0) continue;
-    const lookup = CODE_MAP[name]||{};
+    const lookup = resolveCodeByName(name);
     rows.push({ stockName:name, stockCode:lookup.code||'', market:lookup.market||'tse',
                 shares, avgCost, csvPrice:isNaN(mktP)?null:mktP,
                 type: getTypePref(name)||'長期' });
@@ -1215,7 +1229,7 @@ function parseKGIDetail(text) {
     const transactions = g.rows
       .map(r => ({ id:uid(), date:r.date, action:'buy', shares:r.shares, price:r.price, note:r.note }))
       .sort((a,b) => a.date<b.date?-1:1);
-    const lookup = CODE_MAP[name]||{};
+    const lookup = resolveCodeByName(name);
     return { stockName:name, stockCode:lookup.code||'', market:lookup.market||'tse',
              shares:totalShares, avgCost, csvPrice:g.latestPrice,
              type:getTypePref(name)||'長期', transactions };
@@ -1954,17 +1968,44 @@ function executeImportWrite() {
     };
   });
   
+  // 國泰「彙總/明細」是使用者當下全部持股的快照，很常見的用法是每隔一段
+  // 時間重新匯出、重新匯入來更新市值——如果每次都無條件 push 成新部位，
+  // 同一檔股票會越疊越多筆重複（實測發現的 bug）。改成：先看是否已有
+  // 同代號（或代號都缺、比對名稱）且未清倉的部位，有的話用這次 CSV 的
+  // 股數/均價「覆蓋」既有部位（明細格式另外合併交易記錄，避免重複記兩筆
+  // 同一天同股數同價格的交易），沒有才新增。
+  let addedCount = 0, updatedCount = 0;
   newPos.forEach(p=>{
     saveTypePref(p.stockName,p.type);
     if (p.currentPrice!=null&&p.stockCode) prices[p.stockCode]={price:p.currentPrice,updatedAt:new Date().toISOString()};
-    positions.push(p);
+    const existing = positions.find(x => !x.closed && (
+      (p.stockCode && x.stockCode===p.stockCode) || (!p.stockCode && x.stockName===p.stockName)
+    ));
+    if (existing) {
+      existing.shares = p.shares;
+      existing.avgCost = p.avgCost;
+      if (p.stockCode && !existing.stockCode) { existing.stockCode = p.stockCode; existing.market = p.market; }
+      if (importIsDetail && p.transactions?.length) {
+        const seen = new Set((existing.transactions||[]).map(t=>`${t.date}_${t.shares}_${t.price}_${t.action}`));
+        existing.transactions = existing.transactions||[];
+        p.transactions.forEach(t=>{
+          const key = `${t.date}_${t.shares}_${t.price}_${t.action}`;
+          if (!seen.has(key)) { existing.transactions.push(t); seen.add(key); }
+        });
+      }
+      updatedCount++;
+    } else {
+      positions.push(p);
+      addedCount++;
+    }
   });
-  
-  const missing=newPos.filter(p=>!p.stockCode&&!importIsUSBrokerage);
-  if (missing.length) toast(`已匯入，${missing.map(p=>p.stockName).join('、')} 未填代號，請事後編輯補上。`,'warn');
-  else toast(`成功匯入 ${newPos.length} 筆部位`);
 
-  if (_obEntryActive) _obEntryAddCount += newPos.length;
+  const missing=newPos.filter(p=>!p.stockCode&&!importIsUSBrokerage);
+  const summary = [addedCount?`新增 ${addedCount} 筆`:'', updatedCount?`更新 ${updatedCount} 筆既有部位`:''].filter(Boolean).join('，');
+  if (missing.length) toast(`已匯入（${summary}），${missing.map(p=>p.stockName).join('、')} 未填代號，請事後編輯補上。`,'warn');
+  else toast(`匯入完成：${summary}`);
+
+  if (_obEntryActive) _obEntryAddCount += addedCount;
   saveState(); hideImportModal(); render();
 }
 function batchSetImportType(type) {
