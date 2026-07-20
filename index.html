@@ -273,10 +273,10 @@
     background: var(--hover-bg);
   }
   /* 三欄卡片 grid 預設會把同一列卡片全部撐成最高那張的高度（grid 預設
-     align-items:stretch）。像「需要注意」警示多的時候內容量比同列其他卡片
-     大很多，撐滿後其餘卡片留一堆空白反而更奇怪；改 align-items:start 讓
-     每張卡各自依內容高度顯示（min-height:360px 當底線），警示多就自然長高、
-     不必在固定高度裡再內縮捲動。 */
+     align-items:stretch）。改 align-items:start 讓每張卡各自依內容高度顯示
+     （min-height:360px 當底線），同列卡片不會被彼此拉高。
+     「需要注意」是特例：警示多的時候用戶反而希望維持固定高度＋內部捲動，
+     不要一直長高把整個頁面拉長，所以那張卡改回 height:360px（見下方 HTML）。 */
   .dash-grid-3 { align-items: start; }
   /* 375px 手機寬度：外層 padding 太大會把 4 欄 preset 卡片擠到字都直排，改窄邊距＋2 欄 */
   @media (max-width: 480px) {
@@ -456,7 +456,7 @@
         <div id="nwAllocTotal" style="flex-shrink:0;"></div>
       </div>
 
-      <div class="card" style="padding:16px;display:flex;flex-direction:column;min-height:360px;">
+      <div class="card" style="padding:16px;display:flex;flex-direction:column;height:360px;">
         <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px;flex-shrink:0;">需要注意</div>
         <div id="nwAlerts" style="flex:1;overflow-y:auto;min-height:0;"></div>
       </div>
