@@ -573,6 +573,7 @@
     <div style="display:flex;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border);flex-shrink:0;">
       <div style="font-size:14px;font-weight:600;">現金與其他資產</div>
       <div style="margin-left:auto;display:flex;gap:8px;">
+        <button class="btn btn-ghost btn-sm" onclick="showAccountManagerModal()">⚙ 管理帳戶</button>
         <button class="btn btn-ghost btn-sm" onclick="showOtherAssetsModal()">🏠 其他資產</button>
         <button class="btn btn-primary btn-sm" onclick="showAddCashModal()">+ 新增記錄</button>
       </div>
@@ -4106,6 +4107,7 @@ function renameAccount(id, newName) {
     acc.name = name;
     saveState();
     renderNetWorthCards();
+    renderCashTable();
   }
 }
 function changeAccountType(id, type) {
@@ -4115,6 +4117,7 @@ function changeAccountType(id, type) {
     saveState();
     renderNetWorthCards();
     renderAccountList();
+    renderCashTable();
   }
 }
 function toggleArchiveAccount(id) {
@@ -4124,6 +4127,7 @@ function toggleArchiveAccount(id) {
     saveState();
     renderNetWorthCards();
     renderAccountList();
+    renderCashTable();
   }
 }
 function addNewAccount() {
@@ -4148,6 +4152,7 @@ function addNewAccount() {
   saveState();
   renderNetWorthCards();
   renderAccountList();
+  renderCashTable();
   toast('帳戶已新增');
 }
 
