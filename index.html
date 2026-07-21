@@ -450,7 +450,10 @@
       </div>
 
       <div class="card" style="padding:16px;display:flex;flex-direction:column;min-height:360px;">
-        <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px;flex-shrink:0;">資產配置 vs 目標</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-shrink:0;">
+          <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;">資產配置 vs 目標</div>
+          <button class="btn btn-ghost btn-sm" onclick="showRuleSettingsModal()" style="padding:2px 6px;font-size:11px;" title="編輯配置目標與停損停利規則">⚙️ 設定</button>
+        </div>
         <div id="nwAllocBar" style="height:28px;border-radius:6px;overflow:hidden;display:flex;gap:2px;flex-shrink:0;background:var(--border);margin-bottom:10px;"></div>
         <div id="nwAllocLegend" style="display:flex;flex-direction:column;gap:4px;flex:1;overflow-y:auto;min-height:0;"></div>
         <div id="nwAllocTotal" style="flex-shrink:0;"></div>
@@ -3060,13 +3063,22 @@ async function loadAppSettings(){
   try{ const r=await fetch('./data/settings.json'); if(r.ok) _appSettings=await r.json(); }catch(e){}
   return applyLocalTargetAllocation(_appSettings);
 }
-// 使用者在精靈／設定頁自訂的目標配置存在瀏覽器本機（無法寫回 repo 的 settings.json），
-// 讀取時以本機版本覆蓋 repo 預設值。
+// 使用者在精靈／設定頁自訂的目標配置與規則設定存在瀏覽器本機（無法寫回 repo 的
+// settings.json），讀取時以本機版本覆蓋 repo 預設值。
 function applyLocalTargetAllocation(settings){
   if(!settings) return settings;
   try{
     const raw=localStorage.getItem('target_allocation_v1');
     if(raw) settings.targetAllocation=JSON.parse(raw);
+  }catch(e){}
+  try{
+    const raw=localStorage.getItem('rule_settings_v1');
+    if(raw){
+      const r=JSON.parse(raw);
+      if(r.swingRules) settings.swingRules=r.swingRules;
+      if(r.concentrationAlert!=null) settings.concentrationAlert=r.concentrationAlert;
+      if(r.allocationDriftAlert!=null) settings.allocationDriftAlert=r.allocationDriftAlert;
+    }
   }catch(e){}
   return settings;
 }
@@ -4097,6 +4109,57 @@ function addNewAccount() {
   toast('帳戶已新增');
 }
 
+// ── 配置目標與規則設定（原本只能改 data/settings.json 才能調整，
+// 現在網頁內可直接編輯，寫回本機 localStorage，並隨「匯出資料」一併備份）──
+function showRuleSettingsModal(){
+  const s=_appSettings||{};
+  const tgt=s.targetAllocation||{core:{label:'長線部位',pct:60},swing:{label:'短線部位',pct:30},cash:{label:'機動現金',pct:10}};
+  const rules=s.swingRules||{stopLossPct:-20,takeProfitPct:20,trailingStopPct:null,timeStopMonths:6};
+  document.getElementById('rsTargetCore').value=tgt.core.pct;
+  document.getElementById('rsTargetSwing').value=tgt.swing.pct;
+  document.getElementById('rsTargetCash').value=tgt.cash.pct;
+  document.getElementById('rsStopLoss').value=rules.stopLossPct;
+  document.getElementById('rsTakeProfit').value=rules.takeProfitPct;
+  document.getElementById('rsTrailingStop').value=rules.trailingStopPct??'';
+  document.getElementById('rsTimeStop').value=rules.timeStopMonths;
+  document.getElementById('rsConcentration').value=s.concentrationAlert??20;
+  document.getElementById('rsDrift').value=s.allocationDriftAlert??10;
+  document.getElementById('settingsModal').style.display='flex';
+}
+function hideSettingsModal(){
+  document.getElementById('settingsModal').style.display='none';
+}
+function saveRuleSettings(){
+  const core=+document.getElementById('rsTargetCore').value;
+  const swing=+document.getElementById('rsTargetSwing').value;
+  const cash=+document.getElementById('rsTargetCash').value;
+  if(Math.round(core+swing+cash)!==100){
+    toast(`目標配置三項百分比加總須為 100%（目前 ${core+swing+cash}%）`,'warn');
+    return;
+  }
+  obPersistTargetAllocation(core,swing,cash);
+
+  const trailingRaw=document.getElementById('rsTrailingStop').value;
+  const swingRules={
+    stopLossPct:+document.getElementById('rsStopLoss').value,
+    takeProfitPct:+document.getElementById('rsTakeProfit').value,
+    trailingStopPct:trailingRaw===''?null:+trailingRaw,
+    timeStopMonths:+document.getElementById('rsTimeStop').value,
+  };
+  const concentrationAlert=+document.getElementById('rsConcentration').value;
+  const allocationDriftAlert=+document.getElementById('rsDrift').value;
+  localStorage.setItem('rule_settings_v1',JSON.stringify({swingRules,concentrationAlert,allocationDriftAlert}));
+  if(_appSettings){
+    _appSettings.swingRules=swingRules;
+    _appSettings.concentrationAlert=concentrationAlert;
+    _appSettings.allocationDriftAlert=allocationDriftAlert;
+  }
+  localStorage.setItem('viewed_rules_engine','true');
+  hideSettingsModal();
+  renderNetWorthView();
+  toast('配置目標與規則設定已儲存');
+}
+
 // ── 其他資產（黃金/保單/房產等，不進機動現金計算，只計入總資產）──
 function showOtherAssetsModal() {
   document.getElementById('otherAssetsModal').style.display = 'flex';
@@ -4177,9 +4240,11 @@ async function loadStaticPrices(){
 
 // 一次性遷移工具：匯出所有 localStorage 資料為 JSON 檔（放進 repo data/）
 function exportMigrationData(){
-  // 目標配置若在精靈/設定頁自訂過，本機覆蓋層裡有一份；沒有就沿用 repo 現有設定
+  // 目標配置／規則設定若在精靈/設定頁自訂過，本機覆蓋層裡有一份；沒有就沿用 repo 現有設定
   let targetAllocation=null;
   try{ const raw=localStorage.getItem('target_allocation_v1'); if(raw) targetAllocation=JSON.parse(raw); }catch(e){}
+  let ruleSettings=null;
+  try{ const raw=localStorage.getItem('rule_settings_v1'); if(raw) ruleSettings=JSON.parse(raw); }catch(e){}
   const payload={
     exportedAt:new Date().toISOString(),
     holdings:{migrated:true,positions},
@@ -4192,6 +4257,7 @@ function exportMigrationData(){
     },
     settings:{
       ...(targetAllocation?{targetAllocation}:{}),
+      ...(ruleSettings||{}),
       reserve:{emergencyFund,monthlyExpenseMultiple:6}
     }
   };
@@ -4932,6 +4998,68 @@ function downloadJSON(obj, filename) {
         </div>
         <button class="btn btn-primary btn-sm" onclick="addNewOtherAsset()" style="white-space:nowrap;">新增</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ RULE SETTINGS MODAL（配置目標＋停損停利規則）═══ -->
+<div id="settingsModal" style="display:none;" class="modal-bg" onclick="if(event.target===this)hideSettingsModal()">
+  <div class="modal" style="max-width:440px;">
+    <div class="modal-header">
+      <div class="modal-title">配置目標與規則設定</div>
+      <button class="modal-close" onclick="hideSettingsModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px;">目標配置（三項須加總 100%）</div>
+      <div style="display:flex;gap:8px;margin-bottom:16px;">
+        <div style="flex:1;">
+          <label class="field-label">長線部位 %</label>
+          <input type="number" id="rsTargetCore" style="width:100%;font-size:12px;">
+        </div>
+        <div style="flex:1;">
+          <label class="field-label">短線部位 %</label>
+          <input type="number" id="rsTargetSwing" style="width:100%;font-size:12px;">
+        </div>
+        <div style="flex:1;">
+          <label class="field-label">機動現金 %</label>
+          <input type="number" id="rsTargetCash" style="width:100%;font-size:12px;">
+        </div>
+      </div>
+      <div class="divider"></div>
+      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:12px 0 8px;">短線部位停損停利</div>
+      <div style="display:flex;gap:8px;margin-bottom:10px;">
+        <div style="flex:1;">
+          <label class="field-label">停損線 %（負數）</label>
+          <input type="number" id="rsStopLoss" style="width:100%;font-size:12px;">
+        </div>
+        <div style="flex:1;">
+          <label class="field-label">停利線 %</label>
+          <input type="number" id="rsTakeProfit" style="width:100%;font-size:12px;">
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:16px;">
+        <div style="flex:1;">
+          <label class="field-label">移動停利 %（留空＝不啟用）</label>
+          <input type="number" id="rsTrailingStop" placeholder="留空不啟用" style="width:100%;font-size:12px;">
+        </div>
+        <div style="flex:1;">
+          <label class="field-label">時間停損（月）</label>
+          <input type="number" id="rsTimeStop" style="width:100%;font-size:12px;">
+        </div>
+      </div>
+      <div class="divider"></div>
+      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:12px 0 8px;">提醒門檻</div>
+      <div style="display:flex;gap:8px;margin-bottom:16px;">
+        <div style="flex:1;">
+          <label class="field-label">單檔集中度上限 %</label>
+          <input type="number" id="rsConcentration" style="width:100%;font-size:12px;">
+        </div>
+        <div style="flex:1;">
+          <label class="field-label">配置偏離提醒 ±pp</label>
+          <input type="number" id="rsDrift" style="width:100%;font-size:12px;">
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="saveRuleSettings()" style="width:100%;">儲存設定</button>
     </div>
   </div>
 </div>
