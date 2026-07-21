@@ -568,24 +568,20 @@
     </div>
   </div>
 
-  <!-- ── Cash Records (shown when currentMarket==='net') ── -->
+  <!-- ── Cash Records（依帳戶呈現，shown when currentMarket==='net') ── -->
   <div id="netWorthSection" class="card">
     <div style="display:flex;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border);flex-shrink:0;">
-      <div style="font-size:14px;font-weight:600;">現金記錄</div>
+      <div style="font-size:14px;font-weight:600;">現金與其他資產</div>
       <div style="margin-left:auto;display:flex;gap:8px;">
+        <button class="btn btn-ghost btn-sm" onclick="showOtherAssetsModal()">🏠 其他資產</button>
         <button class="btn btn-primary btn-sm" onclick="showAddCashModal()">+ 新增記錄</button>
       </div>
     </div>
-    <div style="overflow-x:auto;">
-      <table>
-        <thead id="cashTableHead"></thead>
-        <tbody id="cashTableBody"></tbody>
-      </table>
-      <div id="cashEmptyState" style="text-align:center;padding:60px 20px;color:var(--subtle);display:none;">
-        <div style="font-size:32px;margin-bottom:8px;">📊</div>
-        <div style="font-size:14px;font-weight:500;margin-bottom:4px;">尚無現金記錄</div>
-        <div style="font-size:12px;">點擊「新增記錄」開始追蹤總資產</div>
-      </div>
+    <div id="cashAccountsCardList" style="padding:16px 20px;display:flex;flex-direction:column;gap:8px;"></div>
+    <div id="cashEmptyState" style="text-align:center;padding:60px 20px;color:var(--subtle);display:none;">
+      <div style="font-size:32px;margin-bottom:8px;">📊</div>
+      <div style="font-size:14px;font-weight:500;margin-bottom:4px;">尚無現金記錄</div>
+      <div style="font-size:12px;">點擊「新增記錄」開始追蹤總資產</div>
     </div>
   </div>
 
@@ -3805,53 +3801,99 @@ function renderNetWorthCards(){
         :''}`;
 }
 
+// 現金記錄依帳戶呈現：每個現金帳戶＋其他資產各一張卡片，顯示目前餘額＋最後更新時間；
+// 點卡片展開才看該帳戶的歷史記錄（沿用既有 cashModal「一次記一天全部帳戶」的記錄方式，
+// 這裡只是把顯示方式從「一列一個日期」改成「依帳戶分組」，資料結構完全不變）。
 function renderCashTable(){
-  const thead = document.getElementById('cashTableHead');
-  const tbody = document.getElementById('cashTableBody');
+  const container = document.getElementById('cashAccountsCardList');
   const empty = document.getElementById('cashEmptyState');
-  if(!tbody) return;
-  const sorted = [...cashSnapshots].sort((a,b)=>b.date.localeCompare(a.date));
-  if(!sorted.length){
-    if(thead) thead.innerHTML='';
-    tbody.innerHTML='';
+  if(!container) return;
+  const activeAccounts = cashAccounts.filter(a=>!a.archived);
+  if(!activeAccounts.length && !otherAssets.length){
+    container.innerHTML='';
     empty.style.display='block';
     return;
   }
   empty.style.display='none';
 
-  // ── Header ──
-  if(thead){
-    thead.innerHTML=`<tr>
-      <th style="padding-left:20px;">日期</th>
-      <th>現金餘額</th>
-      <th>備註</th>
-      <th style="text-align:center;">操作</th>
-    </tr>`;
-  }
+  const acctIcon = t => t==='broker'?'📈':t==='other'?'💵':'🏦';
+  const assetIcon = t => t==='黃金'?'🪙':t==='保單'?'📄':t==='房產'?'🏠':'💎';
 
-  // ── Body ──
-  tbody.innerHTML = sorted.map((r,idx)=>{
-    const cashTotal = getCashTotal(r);
-    const prev = sorted[idx+1]; // older record
-    const prevTotal = prev ? getCashTotal(prev) : null;
-    let diffHtml = '';
-    if(prevTotal !== null){
-      const diff = cashTotal - prevTotal;
-      if(diff !== 0){
-        const cls = diff>0?'pos':'neg';
-        diffHtml=`<div class="${cls}" style="font-size:10px;">${diff>0?'+':''}${fmt(diff)}</div>`;
+  const acctCardsHtml = activeAccounts.map(acc=>{
+    const bal = getLatestAccountBalance(acc.id);
+    const daysAgo = getAccountDaysAgo(acc.id);
+    const daysHtml = daysAgo===null?'從未更新':(daysAgo===0?'今天已更新':`${daysAgo} 天前更新`);
+    // 舊格式快照（多帳戶功能上線前）沒有 accounts 欄位，只有單一 cash 總額——
+    // 沿用 getLatestAccountBalance()/getAccountDaysAgo() 既有的慣例，這類舊記錄
+    // 一律算在第一個帳戶名下，否則第一個帳戶的歷史記錄會平白消失。
+    const isFirstAccount = cashAccounts[0]?.id === acc.id;
+    const acctVal = s => s.accounts ? s.accounts[acc.id] : s.cash;
+    const history = [...cashSnapshots]
+      .filter(s=>(s.accounts && s.accounts[acc.id]!==undefined) || (!s.accounts && isFirstAccount))
+      .sort((a,b)=>b.date.localeCompare(a.date));
+    const histId = `cashHist_${acc.id}`;
+    const historyRows = history.map((s,idx)=>{
+      const v = acctVal(s);
+      const prev = history[idx+1];
+      let diffHtml='';
+      if(prev){
+        const diff = v - acctVal(prev);
+        if(diff!==0){
+          const cls = diff>0?'pos':'neg';
+          diffHtml=`<span class="${cls}" style="font-size:10px;margin-left:6px;">${diff>0?'+':''}${fmt(diff)}</span>`;
+        }
       }
-    }
-    return `<tr>
-      <td style="padding-left:20px;font-weight:500;white-space:nowrap;">${r.date}</td>
-      <td style="font-variant-numeric:tabular-nums;">$${fmt(cashTotal)}${diffHtml}</td>
-      <td style="color:var(--muted);font-size:12px;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.note||''}</td>
-      <td style="text-align:center;white-space:nowrap;">
-        <button class="btn btn-ghost btn-sm" onclick="editCashRecord('${r.id}')">編輯</button>
-        <button class="btn btn-danger btn-sm" onclick="deleteCashRecord('${r.id}')">刪除</button>
-      </td>
-    </tr>`;
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 8px;font-size:12px;border-bottom:1px solid var(--border);">
+        <div><span style="font-weight:500;">${s.date}</span>${s.note?`<span style="color:var(--muted);margin-left:8px;">${s.note}</span>`:''}</div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-variant-numeric:tabular-nums;">$${fmt(v)}${diffHtml}</span>
+          <button class="btn btn-ghost btn-sm" onclick="editCashRecord('${s.id}')">編輯</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteCashRecord('${s.id}')">刪除</button>
+        </div>
+      </div>`;
+    }).join('') || `<div style="padding:8px;font-size:12px;color:var(--subtle);">此帳戶尚無歷史記錄</div>`;
+
+    return `<div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--hover-bg);cursor:pointer;" onclick="toggleCashHistory('${histId}')">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:18px;">${acctIcon(acc.type)}</span>
+          <div>
+            <div style="font-size:12px;font-weight:600;">${acc.name}</div>
+            <div style="font-size:10px;color:var(--muted);">${daysHtml} · ${history.length} 筆記錄</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="font-variant-numeric:tabular-nums;font-weight:700;font-size:14px;">$${fmt(bal)}</div>
+          <span id="${histId}_arrow" style="font-size:11px;color:var(--muted);">▸</span>
+        </div>
+      </div>
+      <div id="${histId}" style="display:none;">${historyRows}</div>
+    </div>`;
   }).join('');
+
+  const assetCardsHtml = otherAssets.length ? `
+    <div style="font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:8px 0 2px;">其他資產（不計入機動現金）</div>
+    ${otherAssets.map(a=>`
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:var(--hover-bg);border:1px solid var(--border);border-radius:8px;cursor:pointer;" onclick="showOtherAssetsModal()">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:18px;">${assetIcon(a.type)}</span>
+          <div>
+            <div style="font-size:12px;font-weight:600;">${a.name}</div>
+            <div style="font-size:10px;color:var(--muted);">${a.type}</div>
+          </div>
+        </div>
+        <div style="font-variant-numeric:tabular-nums;font-weight:700;font-size:14px;">$${fmt(a.value||0)}</div>
+      </div>`).join('')}` : '';
+
+  container.innerHTML = acctCardsHtml + assetCardsHtml;
+}
+function toggleCashHistory(histId){
+  const el = document.getElementById(histId);
+  const arrow = document.getElementById(`${histId}_arrow`);
+  if(!el) return;
+  const expanded = el.style.display==='block';
+  el.style.display = expanded?'none':'block';
+  if(arrow) arrow.textContent = expanded?'▸':'▾';
 }
 
 // ── 現金記錄 v2 輔助與 CRUD ──
