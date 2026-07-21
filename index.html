@@ -2241,23 +2241,27 @@ function savePosition(continueAdding = false) {
     const _initTx={id:'init_'+_newId,date:new Date().toISOString().split('T')[0],action:'buy',shares,price:cost,note:'初始持倉',_isInitial:true};
     positions.push({id:_newId,stockCode:code,stockName:name,market,type,shares,avgCost:cost,notes,currency:document.getElementById('fCurrency').value,transactions:[_initTx],initialShares:0});
   }
-  
+
+  // 手動新增一筆全新部位＝一筆買進，比照交易記錄自動反映到現金
+  const _cashDelta = (!editingId) ? applyTradeToCashAccount(shares, cost, 'buy', document.getElementById('fCurrency').value) : undefined;
+
   saveState();
   render();
-  
+
   if (!editingId && _obEntryActive) _obEntryAddCount += 1;
 
+  const _cashNote = _cashDelta!=null ? `，現金已同步調整 ${_cashDelta}` : '';
   if (continueAdding) {
     ['fCode','fName','fShares','fCost','fPrice','fNotes'].forEach(id=>document.getElementById(id).value='');
     document.getElementById('fType').value = '長期';
     const defaultMkt=currentMarket==='us'?'us':currentMarket==='tw'?'tse':'tse';
     document.getElementById('fMarket').value = defaultMkt;
     document.getElementById('fCurrency').value = 'TWD';
-    toast('部位已儲存，請繼續新增下一檔');
+    toast('部位已儲存，請繼續新增下一檔'+_cashNote);
     document.getElementById('fCode').focus();
   } else {
     hideAddModal();
-    toast(editingId ? '部位已更新' : '成功新增部位');
+    toast((editingId ? '部位已更新' : '成功新增部位')+_cashNote);
   }
 }
 
@@ -2543,12 +2547,16 @@ function saveTx() {
   positions[idx].transactions.push({id:uid(),date,action,shares,price,note});
   recalcFromTransactions(idx);
   _ytdCache={};  // 持倉異動，清除 YTD cache
+
+  // 買賣交易比照新增部位，自動反映到現金（券商帳戶餘額）
+  const _cashDelta = applyTradeToCashAccount(shares, price, action, positions[idx].currency);
+
   saveState();
   updateRealizedDisplay();
   hideTxModal();
   showDetailModal(txTargetId);
   renderTable();
-  toast('交易記錄已儲存');
+  toast('交易記錄已儲存'+(_cashDelta!=null?`，現金已同步調整 ${_cashDelta}`:''));
 }
 function deleteTx(posId, txId) {
   const idx=positions.findIndex(p=>p.id===posId); if (idx<0) return;
@@ -3934,6 +3942,44 @@ function editCashRecord(id){
   document.getElementById('cashModal').style.display='flex';
 }
 function hideCashModal(){document.getElementById('cashModal').style.display='none';editingCashId=null;}
+
+// 買賣交易發生時，自動把交易金額反映到「證券交割戶」這類券商帳戶餘額——
+// 買進從現金扣掉、賣出加回現金，不然「機動現金（可投資）」會停留在上次
+// 手動記錄現金時的舊數字，跟實際持股異動脫節。找不到券商類型帳戶就不猜，
+// 維持原樣（使用者可能故意只用單一「現金」帳戶，不想被這功能干預）。
+// 回傳實際調整的台幣金額（undefined 表示沒有調整），呼叫端可以顯示在 toast 裡。
+function applyTradeToCashAccount(shares, price, action, currency){
+  const brokerAcc = cashAccounts.find(a => a.type === 'broker' && !a.archived);
+  if (!brokerAcc) return undefined;
+
+  const rate = currency === 'USD' ? (usdTwdRate || 32) : 1;
+  const amountTWD = shares * price * rate;
+  const delta = action === 'buy' ? -amountTWD : amountTWD;
+  const today = todayISO();
+
+  let todaySnap = cashSnapshots.find(s => s.date === today);
+  if (todaySnap) {
+    const curBal = todaySnap.accounts?.[brokerAcc.id] ?? getLatestAccountBalance(brokerAcc.id);
+    todaySnap.accounts = todaySnap.accounts || {};
+    todaySnap.accounts[brokerAcc.id] = Math.round((curBal + delta) * 100) / 100;
+    todaySnap.cash = Object.values(todaySnap.accounts).reduce((s,v)=>s+(+v||0),0);
+  } else {
+    const accounts = {};
+    cashAccounts.filter(a=>!a.archived).forEach(a => { accounts[a.id] = getLatestAccountBalance(a.id); });
+    accounts[brokerAcc.id] = Math.round(((accounts[brokerAcc.id]||0) + delta) * 100) / 100;
+    const twStock = Math.round(positions.filter(p=>!p.closed&&isTWPos(p)).reduce((s,p)=>s+calc(p).value,0));
+    const usStock = Math.round(positions.filter(p=>!p.closed&&isUSPos(p)).reduce((s,p)=>s+calc(p).value,0));
+    const gold    = Math.round(positions.filter(p=>!p.closed&&isGoldPos(p)).reduce((s,p)=>s+calc(p).value,0));
+    cashSnapshots.push({
+      id: uid(), date: today,
+      cash: Object.values(accounts).reduce((s,v)=>s+(+v||0),0),
+      accounts, twStock, usStock, gold,
+      note: `自動：${action==='buy'?'買進':'賣出'}交易後更新現金`
+    });
+  }
+  return Math.round(delta);
+}
+
 function saveCashRecord(){
   const date    =document.getElementById('cashDate').value;
   const cash    =getCashInputTotal();
