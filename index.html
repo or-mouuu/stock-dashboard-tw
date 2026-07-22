@@ -638,8 +638,55 @@
           <strong>彙總</strong>：帳戶查詢 → 損益查詢 → 未實現損益彙總 → 匯出CSV<br>
           <strong>明細</strong>：帳戶查詢 → 損益查詢 → 未實現損益明細 → 匯出CSV（自動建立交易紀錄）
         </div>
+
+        <div style="text-align:center;margin-top:14px;">
+          <button class="btn btn-ghost btn-sm" onclick="showGenericImportPanel()">📋 不是國泰？用貼上文字／自訂欄位對照匯入</button>
+        </div>
+
+        <!-- 通用匯入：不綁定特定券商格式，使用者自己貼文字＋指定每欄意義，
+             取代「每家券商各寫一種解析器」的做法（券商格式一多就補不完，
+             有些券商甚至根本不能匯出 CSV，只能複製畫面文字）。 -->
+        <div id="importGenericPanel" style="display:none;margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+          <div style="font-size:12px;color:var(--muted);margin-bottom:8px;line-height:1.6;">
+            把你券商 App／網頁的持股畫面文字整段複製貼上，或貼上任何格式的 CSV 內容都可以
+            （每列一檔股票，欄位用逗號、Tab 或空白分隔皆可）。貼上後可以自己指定每一欄代表什麼。
+          </div>
+          <textarea id="genericPasteArea" placeholder="範例：&#10;台積電,1000,580&#10;2330,1000,580"
+            style="width:100%;height:110px;font-family:monospace;font-size:12px;padding:8px;
+                   border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);resize:vertical;"></textarea>
+          <div style="display:flex;gap:14px;align-items:center;margin-top:8px;flex-wrap:wrap;">
+            <label style="font-size:12px;display:flex;align-items:center;gap:4px;">分隔符號：
+              <select id="genericDelimiter" style="font-size:12px;">
+                <option value="auto">自動偵測</option>
+                <option value=",">逗號 ,</option>
+                <option value="tab">Tab</option>
+                <option value="ws">空白（多個）</option>
+              </select>
+            </label>
+            <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;">
+              <input type="checkbox" id="genericSkipHeader"> 第一列是標題（略過）
+            </label>
+            <div style="margin-left:auto;display:flex;gap:8px;">
+              <button class="btn btn-outline btn-sm" onclick="hideGenericImportPanel()">取消</button>
+              <button class="btn btn-primary btn-sm" onclick="parseGenericPaste()">解析</button>
+            </div>
+          </div>
+          <div id="genericMapZone" style="display:none;margin-top:14px;">
+            <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">
+              請指定每一欄代表什麼（下方是前 5 列預覽，至少需要指定「股數」「成本均價」，
+              以及「股票名稱」或「股票代號」其中一項）：
+            </div>
+            <div style="overflow-x:auto;">
+              <table id="genericMapTable" style="font-size:12px;"></table>
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
+              <button class="btn btn-outline btn-sm" onclick="document.getElementById('genericMapZone').style.display='none'">重新貼上</button>
+              <button class="btn btn-primary btn-sm" onclick="applyGenericMapping()">套用並下一步</button>
+            </div>
+          </div>
+        </div>
       </div>
-      
+
       <div id="importStep2" style="display:none;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;background:var(--hover-bg);padding:8px 12px;border-radius:6px;">
           <span style="font-size:12px;color:var(--muted);font-weight:500;" id="importStep2Hint">確認代號及類型。</span>
@@ -1781,6 +1828,7 @@ function showImportStep1() {
   document.getElementById('importStep3').style.display='none';
   document.getElementById('importErrorZone').style.display='none';
   document.getElementById('csvInput').value='';
+  hideGenericImportPanel();
 }
 // 共用 CSV 格式偵測與解析：主畫面匯入 modal 與精靈 Step 1 都呼叫這個，
 // 避免同一套解析邏輯被複製貼上兩份、日後修一邊忘了改另一邊。
@@ -1796,6 +1844,112 @@ function parseCSVText(text) {
   }
   return { valid: rows.length > 0, rows, isUSBrokerage, isDetail };
 }
+
+// ── 通用匯入（自訂欄位對照）──
+// 不綁定特定券商格式：使用者貼上任意分隔符號的文字，自己指定每欄意義。
+// 解析完產生的 rows 形狀跟 parseKGI() 一樣（stockName/stockCode/shares/avgCost/
+// csvPrice/market/type/transactions），所以直接沿用既有 Step2/Step3/executeImportWrite()
+// 整條既有管線，不需要另外處理。
+let _genericDataRows = [];
+function showGenericImportPanel() {
+  document.getElementById('importGenericPanel').style.display = 'block';
+}
+function hideGenericImportPanel() {
+  document.getElementById('importGenericPanel').style.display = 'none';
+  document.getElementById('genericMapZone').style.display = 'none';
+  const area = document.getElementById('genericPasteArea');
+  if (area) area.value = '';
+  _genericDataRows = [];
+}
+function splitGenericLine(line, delimChoice) {
+  if (delimChoice === 'tab') return line.split('\t');
+  if (delimChoice === ',') return parseCSVLine(line);
+  if (delimChoice === 'ws') return line.trim().split(/\s{2,}/);
+  // 自動偵測：依序試 tab → 逗號 → 多重空白
+  if (line.includes('\t')) return line.split('\t');
+  if (line.includes(',')) return parseCSVLine(line);
+  return line.trim().split(/\s{2,}/);
+}
+function parseGenericPaste() {
+  const text = document.getElementById('genericPasteArea').value;
+  if (!text.trim()) { toast('請先貼上資料', 'warn'); return; }
+  const delimChoice = document.getElementById('genericDelimiter').value;
+  const skipHeader = document.getElementById('genericSkipHeader').checked;
+  let lines = text.trim().split(/\r?\n/).filter(l => l.trim());
+  if (skipHeader) lines = lines.slice(1);
+  const rows = lines.map(l => splitGenericLine(l, delimChoice).map(c => c.trim()));
+  const validRows = rows.filter(r => r.length > 1);
+  if (!validRows.length) { toast('無法辨識欄位，請確認分隔符號設定', 'err'); return; }
+  _genericDataRows = validRows;
+  renderGenericMapTable(validRows);
+}
+function renderGenericMapTable(rows) {
+  const colCount = Math.max(...rows.slice(0, 10).map(r => r.length));
+  const roleOptions = [
+    { v: 'skip',   l: '（略過）' },
+    { v: 'name',   l: '股票名稱' },
+    { v: 'code',   l: '股票代號' },
+    { v: 'shares', l: '股數' },
+    { v: 'cost',   l: '成本均價' },
+    { v: 'price',  l: '現價（選填）' },
+  ];
+  let html = '<thead><tr>';
+  for (let c = 0; c < colCount; c++) {
+    html += `<th style="padding:4px 6px;"><select id="genericColRole_${c}" style="font-size:11px;">
+      ${roleOptions.map(o => `<option value="${o.v}">${o.l}</option>`).join('')}
+    </select></th>`;
+  }
+  html += '</tr></thead><tbody>';
+  rows.slice(0, 5).forEach(r => {
+    html += '<tr>' + Array.from({ length: colCount }).map((_, c) =>
+      `<td style="padding:4px 8px;white-space:nowrap;color:var(--muted);">${escHtml(r[c] || '')}</td>`).join('') + '</tr>';
+  });
+  html += '</tbody>';
+  document.getElementById('genericMapTable').innerHTML = html;
+  document.getElementById('genericMapZone').style.display = 'block';
+}
+function applyGenericMapping() {
+  const colCount = document.querySelectorAll('[id^="genericColRole_"]').length;
+  const roles = [];
+  for (let c = 0; c < colCount; c++) roles.push(document.getElementById(`genericColRole_${c}`).value);
+  const nameIdx = roles.indexOf('name');
+  const codeIdx = roles.indexOf('code');
+  const sharesIdx = roles.indexOf('shares');
+  const costIdx = roles.indexOf('cost');
+  const priceIdx = roles.indexOf('price');
+  if (sharesIdx < 0 || costIdx < 0 || (nameIdx < 0 && codeIdx < 0)) {
+    toast('至少需要指定「股數」「成本均價」，以及「股票名稱」或「股票代號」其中一項', 'warn');
+    return;
+  }
+  const rows = [];
+  _genericDataRows.forEach(cells => {
+    const name = nameIdx >= 0 ? (cells[nameIdx] || '').trim() : '';
+    let code = codeIdx >= 0 ? (cells[codeIdx] || '').trim() : '';
+    const shares = parseFloat((cells[sharesIdx] || '').replace(/,/g, ''));
+    const avgCost = parseFloat((cells[costIdx] || '').replace(/,/g, ''));
+    const csvPrice = priceIdx >= 0 ? parseFloat((cells[priceIdx] || '').replace(/,/g, '')) : NaN;
+    if (!name && !code) return;
+    if (isNaN(shares) || shares <= 0 || isNaN(avgCost)) return;
+    let market = 'tse';
+    if (!code && name) {
+      const lookup = resolveCodeByName(name);
+      code = lookup.code || '';
+      market = lookup.market || 'tse';
+    }
+    rows.push({
+      stockName: name || code, stockCode: code, shares, avgCost,
+      csvPrice: isNaN(csvPrice) ? null : csvPrice,
+      market, type: getTypePref(name || code) || '長期',
+    });
+  });
+  if (!rows.length) { toast('沒有解析出有效資料，請確認欄位對照與資料格式', 'err'); return; }
+  importIsUSBrokerage = false;
+  importIsDetail = false;
+  importRows = rows;
+  hideGenericImportPanel();
+  showImportStep2();
+}
+
 function handleCSVFile(input) {
   const file=input.files[0]; if (!file) return;
   const reader=new FileReader();
