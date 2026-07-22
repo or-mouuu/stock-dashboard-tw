@@ -5058,43 +5058,31 @@ function checkUnsyncedIndicator() {
 
 function showSyncHelpModal() {
   document.getElementById('syncHelpModal').style.display = 'flex';
+  renderGithubSyncSection();
 }
 
 function hideSyncHelpModal() {
   document.getElementById('syncHelpModal').style.display = 'none';
 }
 
+// 手動下載備份與 GitHub 自動同步共用同一份資料建構邏輯，避免兩邊各自維護
+// 一份「該備份哪些欄位」的清單，日後漏改一邊。
+function buildBackupPayloads() {
+  return {
+    'holdings.json': { migrated: true, positions, updatedAt: new Date().toISOString() },
+    'cash.json': { accounts: cashAccounts, snapshots: cashSnapshots },
+    'misc.json': {
+      realizedPnlTW: parseFloat(localStorage.getItem('realized_pnl_display_tw')||'0')||0,
+      realizedPnlUS: parseFloat(localStorage.getItem('realized_pnl_display_us')||'0')||0,
+      wealthGoals, emergencyFund, monthlyExpense, annualIncome, annualExpenses,
+      cwCategories, userAge, prices, otherAssets
+    }
+  };
+}
+
 function executeManualDownloadBackup() {
-  // 一鍵下載 holdings.json
-  const holdingsPayload = {
-    migrated: true,
-    positions: positions,
-    updatedAt: new Date().toISOString()
-  };
-  downloadJSON(holdingsPayload, 'holdings.json');
-
-  // 一鍵下載 cash.json
-  const cashPayload = {
-    accounts: cashAccounts,
-    snapshots: cashSnapshots
-  };
-  downloadJSON(cashPayload, 'cash.json');
-
-  // 一鍵下載 misc.json
-  const miscPayload = {
-    realizedPnlTW: parseFloat(localStorage.getItem('realized_pnl_display_tw')||'0')||0,
-    realizedPnlUS: parseFloat(localStorage.getItem('realized_pnl_display_us')||'0')||0,
-    wealthGoals,
-    emergencyFund,
-    monthlyExpense,
-    annualIncome,
-    annualExpenses,
-    cwCategories,
-    userAge,
-    prices,
-    otherAssets
-  };
-  downloadJSON(miscPayload, 'misc.json');
+  const payloads = buildBackupPayloads();
+  Object.entries(payloads).forEach(([filename, payload]) => downloadJSON(payload, filename));
 
   toast('三個備份 JSON 檔案已下載，請放入您 repo 的 data/ 資料夾！');
   resetUnsyncedChanges();
@@ -5112,6 +5100,169 @@ function downloadJSON(obj, filename) {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(a.href);
+}
+
+// ════════════════════════════════════════════════
+// GitHub 自動同步（選配，Phase 3 #7）——直接呼叫 GitHub Contents API 把
+// holdings/cash/misc 三個 JSON 寫回使用者自己的 repo，取代「下載→手動搬檔→
+// 自己 commit」的手動流程。Token 只存在這台瀏覽器的 localStorage，不會被
+// 送到本專案以外的任何地方（只用來直接呼叫 api.github.com）。
+// ════════════════════════════════════════════════
+const GITHUB_SYNC_KEY = 'github_sync_config_v1';
+
+function getGithubSyncConfig() {
+  try {
+    const raw = localStorage.getItem(GITHUB_SYNC_KEY);
+    if (!raw) return null;
+    const cfg = JSON.parse(raw);
+    if (!cfg.owner || !cfg.repo || !cfg.token) return null;
+    return cfg;
+  } catch(e) { return null; }
+}
+function maskToken(token) {
+  if (!token || token.length < 8) return '••••••••';
+  return token.slice(0,4) + '••••••••' + token.slice(-4);
+}
+function renderGithubSyncSection() {
+  const cfg = getGithubSyncConfig();
+  const connected = document.getElementById('githubSyncConnected');
+  const disconnected = document.getElementById('githubSyncDisconnected');
+  if (!connected || !disconnected) return;
+  hideGithubSyncSetup();
+  if (cfg) {
+    connected.style.display = 'block';
+    disconnected.style.display = 'none';
+    document.getElementById('githubSyncRepoLabel').textContent = `${cfg.owner}/${cfg.repo}`;
+    document.getElementById('githubSyncBranchLabel').textContent = cfg.branch || 'main';
+    document.getElementById('githubSyncTokenLabel').textContent = maskToken(cfg.token);
+    document.getElementById('githubSyncResult').innerHTML = '';
+  } else {
+    connected.style.display = 'none';
+    disconnected.style.display = 'block';
+  }
+}
+function showGithubSyncSetup() {
+  document.getElementById('githubSyncSetupForm').style.display = 'block';
+}
+function hideGithubSyncSetup() {
+  const form = document.getElementById('githubSyncSetupForm');
+  if (form) form.style.display = 'none';
+}
+function saveGithubSyncConfig() {
+  const owner  = document.getElementById('ghsOwner').value.trim();
+  const repo   = document.getElementById('ghsRepo').value.trim();
+  const branch = document.getElementById('ghsBranch').value.trim() || 'main';
+  const token  = document.getElementById('ghsToken').value.trim();
+  if (!owner || !repo || !token) {
+    toast('請填寫 GitHub 帳號、repo 名稱與 token', 'warn');
+    return;
+  }
+  localStorage.setItem(GITHUB_SYNC_KEY, JSON.stringify({ owner, repo, branch, token }));
+  document.getElementById('ghsToken').value = '';
+  renderGithubSyncSection();
+  testGithubConnection();
+}
+function removeGithubSyncConfig() {
+  if (!confirm('確定要移除 GitHub 自動同步設定嗎？移除後會退回手動下載備份的方式，且無法復原這個 token（GitHub 上的 token 本身不受影響，如需徹底撤銷請到 GitHub 設定頁刪除）。')) return;
+  localStorage.removeItem(GITHUB_SYNC_KEY);
+  renderGithubSyncSection();
+  toast('已移除 GitHub 自動同步設定');
+}
+// GitHub Contents API 的 content 欄位要求 base64；JSON 內容含中文字，
+// 直接 btoa() 會因為非 Latin1 字元噴錯，需要先转成 UTF-8 位元組序列。
+function utf8ToBase64(str) {
+  return btoa(unescape(encodeURIComponent(str)));
+}
+async function githubApiRequest(cfg, path, options = {}) {
+  return fetch(`https://api.github.com/repos/${cfg.owner}/${cfg.repo}${path}`, {
+    ...options,
+    headers: {
+      'Authorization': `Bearer ${cfg.token}`,
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      ...(options.headers || {})
+    }
+  });
+}
+async function testGithubConnection() {
+  const cfg = getGithubSyncConfig();
+  if (!cfg) return;
+  const resultEl = document.getElementById('githubSyncResult');
+  if (resultEl) resultEl.innerHTML = '測試連線中…';
+  try {
+    const res = await githubApiRequest(cfg, '');
+    if (res.ok) {
+      const data = await res.json();
+      const canWrite = data.permissions?.push === true;
+      if (resultEl) resultEl.innerHTML = canWrite
+        ? '<span style="color:var(--profit);">✓ 連線成功，token 有寫入權限。</span>'
+        : '<span style="color:#b45309;">⚠️ 連線成功，但這個 token 對此 repo 沒有寫入權限，請確認 token 的 Contents 權限設為「Read and write」。</span>';
+    } else if (res.status === 404) {
+      if (resultEl) resultEl.innerHTML = '<span style="color:var(--loss);">✗ 找不到這個 repo，請確認帳號／repo 名稱正確，且 token 有涵蓋這個 repo。</span>';
+    } else if (res.status === 401) {
+      if (resultEl) resultEl.innerHTML = '<span style="color:var(--loss);">✗ Token 無效或已過期。</span>';
+    } else {
+      if (resultEl) resultEl.innerHTML = `<span style="color:var(--loss);">✗ 連線失敗（HTTP ${res.status}）。</span>`;
+    }
+  } catch(e) {
+    if (resultEl) resultEl.innerHTML = `<span style="color:var(--loss);">✗ 連線失敗：${escHtml(e.message)}</span>`;
+  }
+}
+async function syncToGithub() {
+  const cfg = getGithubSyncConfig();
+  if (!cfg) return;
+  const resultEl = document.getElementById('githubSyncResult');
+  const payloads = buildBackupPayloads();
+  const filenames = Object.keys(payloads);
+  const results = [];
+  const render = () => { if (resultEl) resultEl.innerHTML = '同步中…<br>' + results.join('<br>'); };
+  render();
+
+  for (const filename of filenames) {
+    const path = `data/${filename}`;
+    try {
+      // 先讀目前檔案的 sha——寫入時帶上這個值，GitHub 會在「其間有人（例如
+      // 每日抓價的 Actions）也寫過這個檔案」時回 409，避免不小心覆蓋掉別人
+      // 剛寫入的內容。檔案還不存在時是 404，視為新建（不用帶 sha）。
+      let sha;
+      const getRes = await githubApiRequest(cfg, `/contents/${path}?ref=${encodeURIComponent(cfg.branch||'main')}`);
+      if (getRes.ok) sha = (await getRes.json()).sha;
+      else if (getRes.status !== 404) throw new Error(`讀取失敗 HTTP ${getRes.status}`);
+
+      const content = utf8ToBase64(JSON.stringify(payloads[filename], null, 2));
+      const putRes = await githubApiRequest(cfg, `/contents/${path}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: `chore: 手動同步 ${filename}（來自儀表板）`,
+          content, branch: cfg.branch || 'main',
+          ...(sha ? { sha } : {})
+        })
+      });
+      if (putRes.ok) {
+        results.push(`<span style="color:var(--profit);">✓ ${filename} 已同步</span>`);
+      } else if (putRes.status === 409) {
+        results.push(`<span style="color:#b45309;">⚠️ ${filename} 衝突（其他裝置或 Actions 剛寫過），已跳過——請重新整理頁面後再試一次</span>`);
+      } else {
+        const errData = await putRes.json().catch(()=>({}));
+        results.push(`<span style="color:var(--loss);">✗ ${filename} 寫入失敗（HTTP ${putRes.status}）${errData.message?'：'+escHtml(errData.message):''}</span>`);
+      }
+    } catch(e) {
+      results.push(`<span style="color:var(--loss);">✗ ${filename} 發生錯誤：${escHtml(e.message)}</span>`);
+    }
+    render();
+  }
+  if (resultEl) resultEl.innerHTML = results.join('<br>');
+
+  const allOk = results.every(r => r.includes('已同步'));
+  if (allOk) {
+    resetUnsyncedChanges();
+    localStorage.setItem('has_backed_up', 'true');
+    refreshObCompletionCard();
+    toast('已成功同步到 GitHub！');
+  } else {
+    toast('部分檔案同步失敗或衝突，請查看詳細訊息', 'warn');
+  }
 }
 </script>
 
@@ -5510,6 +5661,57 @@ function downloadJSON(obj, filename) {
       <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:20px;">
         <button class="btn btn-primary" onclick="executeManualDownloadBackup()" style="width:100%; justify-content:center;">一鍵下載所有備份資料</button>
         <div style="text-align:center; font-size:11px; color:var(--subtle);">包含：持股 (holdings.json)、現金帳戶 (cash.json)、其他配置設定 (misc.json)</div>
+      </div>
+
+      <div class="divider" style="margin-bottom:16px;"></div>
+      <div style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:10px;">🔄 GitHub 自動同步（選配）</div>
+
+      <div id="githubSyncConnected" style="display:none;">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px;line-height:1.6;">
+          已連接：<strong id="githubSyncRepoLabel"></strong>（分支 <span id="githubSyncBranchLabel"></span>）<br>
+          Token：<code id="githubSyncTokenLabel"></code>
+        </div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-primary btn-sm" onclick="syncToGithub()" style="flex:1;">🔄 立即同步</button>
+          <button class="btn btn-outline btn-sm" onclick="testGithubConnection()">測試連線</button>
+          <button class="btn btn-danger btn-sm" onclick="removeGithubSyncConfig()">移除</button>
+        </div>
+        <div id="githubSyncResult" style="margin-top:8px;font-size:11px;line-height:1.6;"></div>
+      </div>
+
+      <div id="githubSyncDisconnected">
+        <button class="btn btn-outline btn-sm" onclick="showGithubSyncSetup()" style="width:100%;">⚙️ 設定自動同步</button>
+      </div>
+
+      <div id="githubSyncSetupForm" style="display:none;margin-top:10px;padding:12px;background:var(--hover-bg);border-radius:8px;">
+        <div style="font-size:11px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:8px;margin-bottom:10px;line-height:1.6;">
+          ⚠️ Token 會存在這台瀏覽器的 localStorage（明碼儲存），請務必使用<strong>只給這個 repo、
+          只給 Contents 讀寫權限</strong>的 <strong>fine-grained token</strong>（
+          <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">建立教學 →</a>），
+          不要用擁有全部權限的 classic token；也不建議在公用或共用電腦上設定這個功能。
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:8px;">
+          <div style="flex:1;">
+            <label class="field-label">GitHub 帳號</label>
+            <input type="text" id="ghsOwner" placeholder="你的 GitHub 帳號" style="width:100%;font-size:12px;">
+          </div>
+          <div style="flex:1;">
+            <label class="field-label">Repo 名稱</label>
+            <input type="text" id="ghsRepo" placeholder="你的 repo 名稱" style="width:100%;font-size:12px;">
+          </div>
+        </div>
+        <div style="margin-bottom:8px;">
+          <label class="field-label">分支（留空預設 main）</label>
+          <input type="text" id="ghsBranch" placeholder="main" style="width:100%;font-size:12px;">
+        </div>
+        <div style="margin-bottom:10px;">
+          <label class="field-label">Fine-grained Personal Access Token</label>
+          <input type="password" id="ghsToken" placeholder="github_pat_..." style="width:100%;font-size:12px;" autocomplete="off">
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;">
+          <button class="btn btn-outline btn-sm" onclick="hideGithubSyncSetup()">取消</button>
+          <button class="btn btn-primary btn-sm" onclick="saveGithubSyncConfig()">儲存並測試連線</button>
+        </div>
       </div>
     </div>
   </div>
