@@ -3829,8 +3829,10 @@ function renderCashTable(){
     // 一律算在第一個帳戶名下，否則第一個帳戶的歷史記錄會平白消失。
     const isFirstAccount = cashAccounts[0]?.id === acc.id;
     const acctVal = s => s.accounts ? s.accounts[acc.id] : s.cash;
+    // autoCarriedAccounts：交易自動更新券商戶時，為了讓當天快照總額算得出來
+    // 而結轉的其他帳戶數字，不是使用者真的動過這個帳戶，不算進它自己的歷史記錄。
     const history = [...cashSnapshots]
-      .filter(s=>(s.accounts && s.accounts[acc.id]!==undefined) || (!s.accounts && isFirstAccount))
+      .filter(s=>((s.accounts && s.accounts[acc.id]!==undefined) || (!s.accounts && isFirstAccount)) && !s.autoCarriedAccounts?.includes(acc.id))
       .sort((a,b)=>b.date.localeCompare(a.date));
     const histId = `cashHist_${acc.id}`;
     const historyRows = history.map((s,idx)=>{
@@ -3909,21 +3911,26 @@ function getLatestAccountBalance(accId) {
   if (latest) {
     return latest.accounts[accId];
   }
-  const latestOld = sorted[0];
-  if (latestOld && (!latestOld.accounts) && cashAccounts.length > 0 && cashAccounts[0].id === accId) {
-    return latestOld.cash || 0;
+  // 舊格式快照（沒有 accounts 欄位）只算在第一個帳戶名下——搜尋整個列表而不是
+  // 只看最新一筆，否則有更新的自動結轉快照排在最前面時，這裡會直接找不到。
+  if (cashAccounts.length > 0 && cashAccounts[0].id === accId) {
+    const latestOld = sorted.find(s => !s.accounts);
+    if (latestOld) return latestOld.cash || 0;
   }
   return 0;
 }
 function getAccountDaysAgo(accId) {
   const sorted = [...cashSnapshots].sort((a,b)=>b.date.localeCompare(a.date));
-  const latest = sorted.find(s => s.accounts && s.accounts[accId] !== undefined);
+  // 交易自動結轉的其他帳戶數值（autoCarriedAccounts）不算「真的更新過」，
+  // 否則買賣一次會讓所有帳戶都顯示「今天已更新」，但其實只有券商戶真的變動。
+  const latest = sorted.find(s => s.accounts && s.accounts[accId] !== undefined && !s.autoCarriedAccounts?.includes(accId));
   if (latest) {
     return Math.floor((Date.now() - new Date(latest.date+'T00:00:00'))/86400000);
   }
-  const latestOld = sorted[0];
-  if (latestOld && (!latestOld.accounts) && cashAccounts.length > 0 && cashAccounts[0].id === accId) {
-    return Math.floor((Date.now() - new Date(latestOld.date+'T00:00:00'))/86400000);
+  // 同上：搜尋整個列表找舊格式記錄，而不是只看最新一筆。
+  if (cashAccounts.length > 0 && cashAccounts[0].id === accId) {
+    const latestOld = sorted.find(s => !s.accounts);
+    if (latestOld) return Math.floor((Date.now() - new Date(latestOld.date+'T00:00:00'))/86400000);
   }
   return null;
 }
@@ -4025,10 +4032,14 @@ function applyTradeToCashAccount(shares, price, action, currency){
     const twStock = Math.round(positions.filter(p=>!p.closed&&isTWPos(p)).reduce((s,p)=>s+calc(p).value,0));
     const usStock = Math.round(positions.filter(p=>!p.closed&&isUSPos(p)).reduce((s,p)=>s+calc(p).value,0));
     const gold    = Math.round(positions.filter(p=>!p.closed&&isGoldPos(p)).reduce((s,p)=>s+calc(p).value,0));
+    // 只有券商戶是這筆交易「真的」更新的帳戶；其他帳戶只是為了讓當天快照的
+    // 現金總額算得出來而沿用上次數字，不是使用者真的動過——標記起來，
+    // 讓帳戶自己的「最後更新」與歷史記錄不要被這種結轉污染。
+    const autoCarriedAccounts = cashAccounts.filter(a=>!a.archived && a.id!==brokerAcc.id).map(a=>a.id);
     cashSnapshots.push({
       id: uid(), date: today,
       cash: Object.values(accounts).reduce((s,v)=>s+(+v||0),0),
-      accounts, twStock, usStock, gold,
+      accounts, twStock, usStock, gold, autoCarriedAccounts,
       note: `自動：${action==='buy'?'買進':'賣出'}交易後更新現金`
     });
   }
@@ -4049,7 +4060,9 @@ function saveCashRecord(){
   if(!date){toast('請填寫日期','warn');return;}
   if(editingCashId){
     const idx=cashSnapshots.findIndex(s=>s.id===editingCashId);
-    if(idx>=0) cashSnapshots[idx]={...cashSnapshots[idx],date,cash,accounts,twStock,usStock,gold,note};
+    // 使用者手動存這筆記錄＝親自確認過表單上所有帳戶的數字，
+    // 清掉可能殘留的 autoCarriedAccounts 標記（若這筆原本是交易自動結轉產生的）。
+    if(idx>=0) cashSnapshots[idx]={...cashSnapshots[idx],date,cash,accounts,twStock,usStock,gold,note,autoCarriedAccounts:undefined};
   } else {
     cashSnapshots.push({id:uid(),date,cash,accounts,twStock,usStock,gold,note});
   }
