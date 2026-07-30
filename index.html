@@ -5148,6 +5148,32 @@ function hideGithubSyncSetup() {
   const form = document.getElementById('githubSyncSetupForm');
   if (form) form.style.display = 'none';
 }
+// 開啟 GitHub 建立 fine-grained token 的頁面，用官方支援的 URL query
+// 參數預填「Resource owner」跟「Contents」權限——這兩項是使用者最容易設定
+// 錯的地方（選錯帳號／忘記把 Contents 改成 Read and write）。GitHub 目前
+// 沒有開放用 URL 預選「Repository access」裡的特定 repo，那一步仍要使用者
+// 自己在頁面上勾選。
+function updateGhsTargetRepoLabel() {
+  const label = document.getElementById('ghsTargetRepoLabel');
+  if (!label) return;
+  const repo = document.getElementById('ghsRepo').value.trim();
+  label.textContent = repo || '這個 repo';
+}
+function openGithubTokenCreationPage() {
+  const owner = document.getElementById('ghsOwner').value.trim();
+  const repo  = document.getElementById('ghsRepo').value.trim();
+  if (!owner) {
+    toast('請先填寫 GitHub 帳號，才能幫你代入設定', 'warn');
+    return;
+  }
+  const params = new URLSearchParams({
+    target_name: owner,
+    name: repo ? `${repo}-dashboard-sync` : '資產記錄儀表板同步',
+    description: '用於網頁自動同步 data/ 三個 JSON 檔案（holdings/cash/misc）',
+    contents: 'write'
+  });
+  window.open(`https://github.com/settings/personal-access-tokens/new?${params.toString()}`, '_blank', 'noopener');
+}
 function saveGithubSyncConfig() {
   const owner  = document.getElementById('ghsOwner').value.trim();
   const repo   = document.getElementById('ghsRepo').value.trim();
@@ -5184,6 +5210,14 @@ async function githubApiRequest(cfg, path, options = {}) {
     }
   });
 }
+// 404 對私有 repo 來說，最常見的原因不是「名稱打錯」而是 token 涵蓋不到這個 repo——
+// GitHub 對「repo 存在但沒權限」跟「repo 不存在」一律回 404、不會區分兩者（安全考量，
+// 不洩漏私有 repo 存在與否），所以錯誤訊息必須直接把可能原因列出來，不能只講表面現象。
+const GITHUB_404_HINT = `✗ 找不到這個 repo。私有 repo 的 token 沒涵蓋到時也會顯示這個錯誤，請依序檢查：<br>
+  1. Token 建立時「Resource owner」是否選到正確帳號<br>
+  2. 「Repository access」是否選了「Only select repositories」並勾選這個 repo<br>
+  3. 帳號／repo 名稱兩欄是否正確（分開填，不要貼完整網址）<br>
+  4. 若此 repo 屬於 organization，token 是否還在等待 org 管理員核准`;
 async function testGithubConnection() {
   const cfg = getGithubSyncConfig();
   if (!cfg) return;
@@ -5198,7 +5232,7 @@ async function testGithubConnection() {
         ? '<span style="color:var(--profit);">✓ 連線成功，token 有寫入權限。</span>'
         : '<span style="color:#b45309;">⚠️ 連線成功，但這個 token 對此 repo 沒有寫入權限，請確認 token 的 Contents 權限設為「Read and write」。</span>';
     } else if (res.status === 404) {
-      if (resultEl) resultEl.innerHTML = '<span style="color:var(--loss);">✗ 找不到這個 repo，請確認帳號／repo 名稱正確，且 token 有涵蓋這個 repo。</span>';
+      if (resultEl) resultEl.innerHTML = `<span style="color:var(--loss);line-height:1.7;">${GITHUB_404_HINT}</span>`;
     } else if (res.status === 401) {
       if (resultEl) resultEl.innerHTML = '<span style="color:var(--loss);">✗ Token 無效或已過期。</span>';
     } else {
@@ -5685,11 +5719,10 @@ async function syncToGithub() {
 
       <div id="githubSyncSetupForm" style="display:none;margin-top:10px;padding:12px;background:var(--hover-bg);border-radius:8px;">
         <div style="font-size:11px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:8px;margin-bottom:10px;line-height:1.6;">
-          ⚠️ Token 會存在這台瀏覽器的 localStorage（明碼儲存），請務必使用<strong>只給這個 repo、
-          只給 Contents 讀寫權限</strong>的 <strong>fine-grained token</strong>（
-          <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">建立教學 →</a>），
-          不要用擁有全部權限的 classic token；也不建議在公用或共用電腦上設定這個功能。
+          ⚠️ Token 會存在這台瀏覽器的 localStorage（明碼儲存），只建議自己的電腦設定這個功能。
         </div>
+
+        <div style="font-size:11px;color:var(--muted);font-weight:600;margin-bottom:4px;">步驟 1：填入 GitHub 帳號與 repo</div>
         <div style="display:flex;gap:8px;margin-bottom:8px;">
           <div style="flex:1;">
             <label class="field-label">GitHub 帳號</label>
@@ -5697,13 +5730,26 @@ async function syncToGithub() {
           </div>
           <div style="flex:1;">
             <label class="field-label">Repo 名稱</label>
-            <input type="text" id="ghsRepo" placeholder="你的 repo 名稱" style="width:100%;font-size:12px;">
+            <input type="text" id="ghsRepo" placeholder="你的 repo 名稱" style="width:100%;font-size:12px;" oninput="updateGhsTargetRepoLabel()">
           </div>
         </div>
-        <div style="margin-bottom:8px;">
+        <div style="margin-bottom:12px;">
           <label class="field-label">分支（留空預設 main）</label>
           <input type="text" id="ghsBranch" placeholder="main" style="width:100%;font-size:12px;">
         </div>
+
+        <div style="font-size:11px;color:var(--muted);font-weight:600;margin-bottom:4px;">步驟 2：建立 token</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px;line-height:1.7;">
+          按下方按鈕會開啟 GitHub 建立 token 的頁面，並<strong>自動幫你選好帳號、Contents 權限也會
+          預設為「Read and write」</strong>——這兩個是最容易設定錯的地方。你只需要在頁面中間
+          「Repository access」選「Only select repositories」，勾選 <strong id="ghsTargetRepoLabel">這個 repo</strong>，
+          再按最下面的「Generate token」，然後把產生的 token 複製過來貼在下面。
+        </div>
+        <button type="button" class="btn btn-outline btn-sm" onclick="openGithubTokenCreationPage()" style="width:100%;margin-bottom:12px;">
+          🔗 前往建立 Token（已代入帳號與權限）
+        </button>
+
+        <div style="font-size:11px;color:var(--muted);font-weight:600;margin-bottom:4px;">步驟 3：貼上 token</div>
         <div style="margin-bottom:10px;">
           <label class="field-label">Fine-grained Personal Access Token</label>
           <input type="password" id="ghsToken" placeholder="github_pat_..." style="width:100%;font-size:12px;" autocomplete="off">
