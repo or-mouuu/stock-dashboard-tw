@@ -4164,8 +4164,17 @@ function hideCashModal(){document.getElementById('cashModal').style.display='non
 // 手動記錄現金時的舊數字，跟實際持股異動脫節。找不到券商類型帳戶就不猜，
 // 維持原樣（使用者可能故意只用單一「現金」帳戶，不想被這功能干預）。
 // 回傳實際調整的台幣金額（undefined 表示沒有調整），呼叫端可以顯示在 toast 裡。
+// 台股/美股交易分別記到對應幣別的券商戶（例如國泰證券戶 TWD、國泰外幣證券戶 USD）；
+// 帳戶沒有標幣別，或找不到剛好對到的幣別時，退回第一個券商戶（維持只有單一券商戶
+// 時代的行為，不會因為這個功能升級就找不到帳戶可以扣款）。
+function pickBrokerAccountForCurrency(currency){
+  const activeBrokers = cashAccounts.filter(a => a.type === 'broker' && !a.archived);
+  if (!activeBrokers.length) return null;
+  const wantCurrency = currency === 'USD' ? 'USD' : 'TWD';
+  return activeBrokers.find(a => (a.currency||'TWD') === wantCurrency) || activeBrokers[0];
+}
 function applyTradeToCashAccount(shares, price, action, currency){
-  const brokerAcc = cashAccounts.find(a => a.type === 'broker' && !a.archived);
+  const brokerAcc = pickBrokerAccountForCurrency(currency);
   if (!brokerAcc) return undefined;
 
   const rate = currency === 'USD' ? (usdTwdRate || 32) : 1;
@@ -4179,6 +4188,13 @@ function applyTradeToCashAccount(shares, price, action, currency){
     todaySnap.accounts = todaySnap.accounts || {};
     todaySnap.accounts[brokerAcc.id] = Math.round((curBal + delta) * 100) / 100;
     todaySnap.cash = Object.values(todaySnap.accounts).reduce((s,v)=>s+(+v||0),0);
+    // 同一天內第一筆交易若動的是另一個券商戶（例如先買台股再買美股，兩邊各記在
+    // 不同幣別的券商戶），這個帳戶當初建立當天快照時可能被標成「只是結轉」；
+    // 現在這筆交易讓它變成真的有更新，要從 autoCarriedAccounts 移除，不然它的
+    // 歷史記錄跟「最後更新」還是會被當成沒異動過。
+    if (todaySnap.autoCarriedAccounts) {
+      todaySnap.autoCarriedAccounts = todaySnap.autoCarriedAccounts.filter(id => id !== brokerAcc.id);
+    }
   } else {
     const accounts = {};
     cashAccounts.filter(a=>!a.archived).forEach(a => { accounts[a.id] = getLatestAccountBalance(a.id); });
@@ -4245,11 +4261,18 @@ function renderAccountList() {
   
   container.innerHTML = cashAccounts.map(acc => {
     const isArchived = acc.archived;
+    // 幣別只對「證券」帳戶有實質意義（決定買賣交易自動扣款要記到哪個券商戶），
+    // 銀行/其他帳戶不影響任何計算邏輯，不顯示這個選單以免混淆。
+    const currencySelect = acc.type === 'broker' ? `
+          <select onchange="changeAccountCurrency('${acc.id}', this.value)" style="font-size:11px;padding:2px;border:none;background:transparent;color:var(--muted);outline:none;">
+            <option value="TWD" ${(acc.currency||'TWD')==='TWD'?'selected':''}>TWD</option>
+            <option value="USD" ${acc.currency==='USD'?'selected':''}>USD</option>
+          </select>` : '';
     return `
       <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px;background:var(--hover-bg);border-radius:6px;border:1px solid var(--border);">
         <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:0;">
           <span style="font-size:16px;">${acc.type === 'broker' ? '📈' : (acc.type === 'bank' ? '🏦' : '💵')}</span>
-          <input type="text" value="${acc.name}" onchange="renameAccount('${acc.id}', this.value)" 
+          <input type="text" value="${acc.name}" onchange="renameAccount('${acc.id}', this.value)"
             style="font-size:12px;font-weight:600;padding:2px 4px;border:1px solid transparent;background:transparent;width:120px;text-overflow:ellipsis;"
             onfocus="this.style.borderColor='var(--border)';this.style.background='var(--surface)'"
             onblur="this.style.borderColor='transparent';this.style.background='transparent'">
@@ -4258,6 +4281,7 @@ function renderAccountList() {
             <option value="broker" ${acc.type==='broker'?'selected':''}>證券</option>
             <option value="other" ${acc.type==='other'?'selected':''}>其他</option>
           </select>
+          ${currencySelect}
         </div>
         <button class="btn btn-ghost btn-xs" onclick="toggleArchiveAccount('${acc.id}')" style="padding:2px 6px;font-size:11px;color:${isArchived?'var(--profit)':'var(--muted)'};">
           ${isArchived ? '取消封存' : '封存'}
@@ -4287,6 +4311,13 @@ function changeAccountType(id, type) {
     renderCashTable();
   }
 }
+function changeAccountCurrency(id, currency) {
+  const acc = cashAccounts.find(a => a.id === id);
+  if(acc) {
+    acc.currency = currency;
+    saveState();
+  }
+}
 function toggleArchiveAccount(id) {
   const acc = cashAccounts.find(a => a.id === id);
   if(acc) {
@@ -4300,18 +4331,21 @@ function toggleArchiveAccount(id) {
 function addNewAccount() {
   const nameEl = document.getElementById('newAccountName');
   const typeEl = document.getElementById('newAccountType');
+  const currencyEl = document.getElementById('newAccountCurrency');
   const name = nameEl.value.trim();
   const type = typeEl.value;
-  
+  const currency = currencyEl ? currencyEl.value : 'TWD';
+
   if(!name) {
     toast('請填寫帳戶名稱', 'warn');
     return;
   }
-  
+
   cashAccounts.push({
     id: uid(),
     name: name,
     type: type,
+    currency: currency,
     archived: false
   });
   
@@ -5353,6 +5387,13 @@ async function syncToGithub() {
             <option value="bank">銀行</option>
             <option value="broker">證券</option>
             <option value="other">其他</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-label">幣別</label>
+          <select id="newAccountCurrency" style="width:70px;font-size:12px;">
+            <option value="TWD">TWD</option>
+            <option value="USD">USD</option>
           </select>
         </div>
         <button class="btn btn-primary btn-sm" onclick="addNewAccount()" style="white-space:nowrap;">新增</button>
